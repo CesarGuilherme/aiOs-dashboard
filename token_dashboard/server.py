@@ -21,6 +21,7 @@ from .tips import all_tips, dismiss_tip
 from .memory import get_brain, quarantine_memory, promote_memory
 from .scanner import scan_dir
 from .skills import cached_catalog
+from .workspace import scan_workspace
 
 
 WEB_ROOT = Path(__file__).resolve().parent.parent / "web"
@@ -172,6 +173,8 @@ def build_handler(db_path: str, projects_dir: str):
                 return _send_json(self, all_tips(db_path, projects_dir))
             if path == "/api/brain":
                 return _send_json(self, get_brain(projects_dir, db_path, pricing))
+            if path == "/api/workspace":
+                return _send_json(self, scan_workspace(Path.home() / ".claude"))
             if path == "/api/plan":
                 return _send_json(self, {"plan": get_plan(db_path), "pricing": pricing})
             if path == "/api/scan":
