@@ -64,16 +64,17 @@ function layout(nodes) {
     let est = 0;
     for (let r = R_FILES0; r < R_ROUT - 40; r += sR) est += Math.max(1, Math.floor((span * r) / sA));
     if (items.length > est && est > 0) {
-      const f = Math.max(0.35, Math.sqrt(est / items.length));
+      const f = Math.sqrt(est / items.length);
       sA *= f; sR *= f;
     }
     while (i < items.length) {   // no radius ceiling — every item gets placed
       const cap = Math.max(1, Math.floor((span * rad) / sA));
       for (let k = 0; k < cap && i < items.length; k++, i++) {
         const it = items[i];
-        on(it.n, a0 + ((k + 0.5) / cap) * span, rad + (hash(it.n.id) - 0.5) * 8, Math.min(it.r, sR * 0.45), color);
+        on(it.n, a0 + ((k + 0.5) / cap) * span, rad + (hash(it.n.id) - 0.5) * 8, Math.max(2, Math.min(it.r, sR * 0.45)), color);
       }
-      rad += sR;
+      // ponytail: rows past the cap stack at WORLD-60; smarter packing if a dept ever needs it
+      rad = Math.min(rad + sR, WORLD - 60);
     }
     a0 += span + GAP;
   }

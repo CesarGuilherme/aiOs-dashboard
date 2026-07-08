@@ -227,6 +227,8 @@ def build_handler(db_path: str, projects_dir: str):
                 res = promote_memory(projects_dir, body.get("slug", ""), body.get("file", ""))
                 return _send_json(self, res, status=200 if res.get("ok") else 404)
             if url.path == "/api/open":
+                if "application/json" not in (self.headers.get("Content-Type") or ""):
+                    self.send_response(403); self.end_headers(); return
                 target = str(body.get("path", ""))
                 claude_dir = Path.home() / ".claude"
                 if not allowed_open_path(target, workspace_roots(), claude_dir):
