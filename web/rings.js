@@ -1,15 +1,103 @@
-// rings.js — concentric-ring "second brain" canvas for the Brain tab.
-// Deterministic polar layout, no force simulation: each layer is a ring band,
-// nodes evenly spaced within their group, radius jittered by a name hash.
+// rings.js — "second brain" renderer v2.
+// Scene is baked once to an offscreen bitmap (glow included), then every frame the
+// bitmap is blitted with rotate/zoom/pan transforms — flat cost at 30k+ nodes.
+// World space: center (0,0), radii in abstract units (outer ring ~ 900).
 
-const LAYERS = [
-  { key: 'skills',       label: 'SKILLS',       rf: 0.18, color: '#E8A23B' },
-  { key: 'memory',       label: 'MEMORY',       rf: 0.46, color: '#B48CFF' },
-  { key: 'routines',     label: 'ROUTINES',     rf: 0.68, color: '#E8D44D' },
-  { key: 'applications', label: 'APPLICATIONS', rf: 0.86, color: '#4DA6FF' },
-];
-
+const PAL = ['#B48CFF', '#E08CD5', '#7FD8C9', '#E8D46B', '#8CB4FF', '#F0A87A', '#9BE07F', '#FF9BB0'];
+const LAYER = {
+  skills:       { color: '#E8944A', label: 'SKILLS' },
+  memory:       { color: '#B48CFF', label: 'MEMORY' },
+  routines:     { color: '#D9B944', label: 'ROUTINES' },
+  applications: { color: '#7FA8E8', label: 'APPLICATIONS' },
+};
+const R_SKILLS = [120, 160, 200], R_HUB = 290, R_FILES0 = 340, R_ROUT = 700, R_APPS = 860;
+const WORLD = 960;             // world half-extent baked
+const BAKE_PX = 3600;          // offscreen bitmap edge (px)
 const hash = s => { let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) | 0; return (h >>> 0) / 4294967295; };
+
+function layout(nodes) {
+  const center = { id: 'center', name: 'CLAUDE.MD', layer: 'center', group: '', size: 1, meta: {}, x: 0, y: 0, r: 16, color: '#E8944A' };
+  const out = [center];
+  const on = (n, a, rad, r, color) => { n.x = Math.cos(a) * rad; n.y = Math.sin(a) * rad; n.r = r; n.color = color; out.push(n); };
+
+  // skills — sparkle rows around center
+  const skills = nodes.filter(n => n.layer === 'skills');
+  let si = 0;
+  for (const row of R_SKILLS) {
+    const cap = Math.floor((2 * Math.PI * row) / 34);
+    for (let k = 0; k < cap && si < skills.length; k++, si++)
+      on(skills[si], (k / cap) * 2 * Math.PI + row, row, 7, LAYER.skills.color);
+  }
+  for (; si < skills.length; si++)   // overflow: extra outer row
+    on(skills[si], hash(skills[si].id) * 2 * Math.PI, R_SKILLS[2] + 34, 7, LAYER.skills.color);
+
+  // routines / applications — evenly on their rings
+  const ring = (list, rad, r, color) => list.forEach((n, i) =>
+    on(n, (i / Math.max(1, list.length)) * 2 * Math.PI + 0.4, rad, r, color));
+  ring(nodes.filter(n => n.layer === 'routines'), R_ROUT, 9, LAYER.routines.color);
+  ring(nodes.filter(n => n.layer === 'applications'), R_APPS, 15, LAYER.applications.color);
+
+  // departments — wedges of memories (inner rows) + files (arc rows)
+  const mem = nodes.filter(n => n.layer === 'memory');
+  const files = nodes.filter(n => n.layer === 'file');
+  const depts = [...new Set([...mem, ...files].map(n => n.group))].sort();
+  const weight = d => Math.sqrt(files.filter(f => f.group === d).length + 3 * mem.filter(m => m.group === d).length + 1);
+  const totW = depts.reduce((s, d) => s + weight(d), 0) || 1;
+  const GAP = 0.05;
+  let a0 = -Math.PI / 2;
+  const hubs = [];
+  for (const [di, d] of depts.entries()) {
+    const span = (weight(d) / totW) * 2 * Math.PI - GAP;
+    const color = PAL[di % PAL.length];
+    const mid = a0 + span / 2;
+    const hub = { id: 'hub::' + d, name: d, layer: 'hub', group: d, size: 1, meta: { dept: d }, };
+    on(hub, mid, R_HUB, 12, color);
+    hubs.push(hub);
+    // memories first (bigger orbs), then files, packed row by row outward
+    const items = [
+      ...mem.filter(m => m.group === d).map(m => ({ n: m, r: 6 + Math.min(6, m.size) })),
+      ...files.filter(f => f.group === d).map(f => ({ n: f, r: Math.max(2.6, Math.min(9, 2 + 1.6 * Math.log10(1 + (f.size || 0) / 1024))) })),
+    ];
+    let rad = R_FILES0, i = 0;
+    while (i < items.length && rad < R_ROUT - 40) {
+      const cap = Math.max(1, Math.floor((span * rad) / 22));
+      for (let k = 0; k < cap && i < items.length; k++, i++) {
+        const it = items[i];
+        on(it.n, a0 + ((k + 0.5) / cap) * span, rad + (hash(it.n.id) - 0.5) * 8, it.r, color);
+      }
+      rad += 24;
+    }
+    a0 += span + GAP;
+  }
+  return { all: out.concat(), center, hubs };
+}
+
+function drawNode(ctx, n) {
+  ctx.shadowColor = n.color; ctx.shadowBlur = n.r * 2.2;
+  ctx.fillStyle = n.color; ctx.strokeStyle = n.color;
+  if (n.layer === 'skills') {                       // 4-point sparkle
+    ctx.beginPath();
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * 2 * Math.PI, rr = i % 2 ? n.r * 0.35 : n.r;
+      ctx[i ? 'lineTo' : 'moveTo'](n.x + Math.cos(a) * rr, n.y + Math.sin(a) * rr);
+    }
+    ctx.closePath(); ctx.fill();
+  } else if (n.layer === 'applications') {          // hexagon badge
+    ctx.beginPath();
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * 2 * Math.PI + Math.PI / 6;
+      ctx[i ? 'lineTo' : 'moveTo'](n.x + Math.cos(a) * n.r, n.y + Math.sin(a) * n.r);
+    }
+    ctx.closePath();
+    ctx.globalAlpha = 0.25; ctx.fill(); ctx.globalAlpha = 1;
+    ctx.lineWidth = 2; ctx.stroke();
+  } else if (n.layer === 'routines') {              // circled dot
+    ctx.beginPath(); ctx.arc(n.x, n.y, n.r * 0.4, 0, 2 * Math.PI); ctx.fill();
+    ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(n.x, n.y, n.r, 0, 2 * Math.PI); ctx.stroke();
+  } else {                                          // glowing orb
+    ctx.beginPath(); ctx.arc(n.x, n.y, n.r, 0, 2 * Math.PI); ctx.fill();
+  }
+}
 
 export function ringsCanvas(el, { nodes, links, onNodeClick, onNodeHover }) {
   const canvas = document.createElement('canvas');
@@ -17,113 +105,141 @@ export function ringsCanvas(el, { nodes, links, onNodeClick, onNodeHover }) {
   el.appendChild(canvas);
   const ctx = canvas.getContext('2d');
 
-  // --- layout: assign each node a fixed polar position (angle, radius fraction)
-  for (const layer of LAYERS) {
-    const ns = nodes.filter(n => n.layer === layer.key)
-      .sort((a, b) => String(a.group).localeCompare(String(b.group)) || a.name.localeCompare(b.name));
-    ns.forEach((n, i) => {
-      n._a = (i / Math.max(1, ns.length)) * Math.PI * 2 + hash(layer.key) * Math.PI;
-      n._rf = layer.rf + (hash(n.id) - 0.5) * 0.07;   // jitter within the band
-      n._color = layer.color;
-    });
+  const { all, center, hubs } = layout(nodes);
+  const byId = new Map(all.map(n => [n.id, n]));
+  const edges = links.map(l => [byId.get(l.source), byId.get(l.target)]).filter(([a, b]) => a && b);
+  hubs.forEach(h => edges.push([center, h]));
+
+  // spatial grid for hit-testing (world coords)
+  const grid = new Map();
+  const cell = 48, key = (x, y) => `${Math.floor(x / cell)},${Math.floor(y / cell)}`;
+  for (const n of all) {
+    const k = key(n.x, n.y);
+    (grid.get(k) || grid.set(k, []).get(k)).push(n);
   }
-  const byId = new Map(nodes.map(n => [n.id, n]));
-  const edges = links
-    .map(l => [byId.get(l.source), byId.get(l.target)])
-    .filter(([a, b]) => a && b);
 
-  // --- state
-  let spin = +(localStorage.getItem('td.rings.spin') ?? 0.15);
+  let spin = +(localStorage.getItem('td.rings.spin') ?? 0.12);
   let labels = localStorage.getItem('td.rings.labels') !== '0';
-  let rot = 0, zoom = 1, panX = 0, panY = 0;
-  let filter = null, hovered = null, raf = null, last = performance.now(), dead = false;
+  let filter = null, hovered = null, dead = false, raf = null, last = performance.now();
+  let rot = 0, zoom = 0.9, panX = 0, panY = 0, fly = null;
 
-  const resize = () => {
-    const dpr = devicePixelRatio || 1;
-    canvas.width = el.clientWidth * dpr;
-    canvas.height = el.clientHeight * dpr;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    draw();
-  };
+  // --- offscreen bake
+  const off = document.createElement('canvas');
+  off.width = off.height = BAKE_PX;
+  const os = BAKE_PX / (2 * WORLD);
+  function bake() {
+    const c = off.getContext('2d');
+    c.setTransform(os, 0, 0, os, BAKE_PX / 2, BAKE_PX / 2);
+    c.clearRect(-WORLD, -WORLD, 2 * WORLD, 2 * WORLD);
+    // guide rings
+    c.shadowBlur = 0;
+    for (const [rad, col] of [[R_ROUT, LAYER.routines.color], [R_APPS, LAYER.applications.color], [R_FILES0 - 60, LAYER.memory.color]]) {
+      c.beginPath(); c.arc(0, 0, rad, 0, 2 * Math.PI);
+      c.strokeStyle = col + '33'; c.lineWidth = 1.2; c.stroke();
+    }
+    // links
+    c.lineWidth = 0.7;
+    for (const [a, b] of edges) {
+      const dim = filter && !(a.name.toLowerCase().includes(filter) || b.name.toLowerCase().includes(filter));
+      c.strokeStyle = dim ? 'rgba(170,160,210,0.02)' : 'rgba(170,160,210,0.10)';
+      c.beginPath(); c.moveTo(a.x, a.y);
+      c.quadraticCurveTo((a.x + b.x) / 2 * 0.6, (a.y + b.y) / 2 * 0.6, b.x, b.y);
+      c.stroke();
+    }
+    for (const n of all) {
+      c.globalAlpha = filter && !n.name.toLowerCase().includes(filter) ? 0.10 : 1;
+      drawNode(c, n);
+    }
+    c.globalAlpha = 1; c.shadowBlur = 0;
+    // hub + center + fixed-node labels (baked; they rotate slowly with the scene)
+    c.fillStyle = 'rgba(235,230,250,0.9)'; c.font = '600 15px system-ui'; c.textAlign = 'center';
+    for (const h of hubs) c.fillText(h.name.toUpperCase(), h.x, h.y + 30);
+    c.fillText('CLAUDE.MD', 0, 34);
+    if (labels) {
+      c.font = '11px system-ui'; c.fillStyle = 'rgba(220,215,240,0.7)';
+      for (const n of all)
+        if (['applications', 'routines', 'skills'].includes(n.layer))
+          c.fillText(n.name, n.x, n.y + n.r + 12);
+    }
+  }
+  let bakeTimer = null;
+  const rebake = () => { clearTimeout(bakeTimer); bakeTimer = setTimeout(() => { bake(); draw(); }, 120); };
 
-  const pos = n => {
-    const R = Math.min(el.clientWidth, el.clientHeight) / 2 - 24;
-    const a = n._a + rot, r = n._rf * R * zoom;
-    return [el.clientWidth / 2 + panX + Math.cos(a) * r,
-            el.clientHeight / 2 + panY + Math.sin(a) * r];
-  };
+  // --- hex-grid background tile
+  const tile = document.createElement('canvas'); tile.width = 48; tile.height = 42;
+  { const t = tile.getContext('2d'); t.strokeStyle = 'rgba(140,130,180,0.05)'; t.lineWidth = 1;
+    const hex = (cx, cy) => { t.beginPath(); for (let i = 0; i < 6; i++) { const a = (i / 6) * 2 * Math.PI + Math.PI / 6; t[i ? 'lineTo' : 'moveTo'](cx + 14 * Math.cos(a), cy + 14 * Math.sin(a)); } t.closePath(); t.stroke(); };
+    hex(12, 10); hex(36, 31); }
+  let pattern = null;
 
-  const match = n => !filter || n.name.toLowerCase().includes(filter);
+  const W = () => el.clientWidth, H = () => el.clientHeight;
+  const screenScale = () => Math.min(W(), H()) / (2 * WORLD) * zoom * 2.0;
 
   function draw() {
-    const W = el.clientWidth, H = el.clientHeight;
-    ctx.clearRect(0, 0, W, H);
-    const R = Math.min(W, H) / 2 - 24;
-    const cx = W / 2 + panX, cy = H / 2 + panY;
-    // ring bands + arc labels
-    for (const layer of LAYERS) {
-      ctx.beginPath();
-      ctx.arc(cx, cy, layer.rf * R * zoom, 0, Math.PI * 2);
-      ctx.strokeStyle = layer.color + '44';
-      ctx.lineWidth = 1;
-      ctx.stroke();
-      ctx.fillStyle = layer.color + 'CC';
-      ctx.font = '600 11px system-ui';
-      ctx.textAlign = 'center';
-      ctx.fillText(layer.label, cx, cy - layer.rf * R * zoom - 5);
+    const w = W(), h = H(), s = screenScale();
+    ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    if (!pattern) pattern = ctx.createPattern(tile, 'repeat');
+    ctx.fillStyle = pattern; ctx.fillRect(0, 0, w, h);
+    ctx.translate(w / 2 + panX, h / 2 + panY);
+    ctx.rotate(rot);
+    ctx.scale(s / os, s / os);
+    ctx.drawImage(off, -BAKE_PX / 2, -BAKE_PX / 2);
+    ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+    // upright band labels at 12 o'clock
+    ctx.textAlign = 'center'; ctx.font = '700 13px system-ui';
+    for (const [rad, L] of [[R_APPS, LAYER.applications], [R_ROUT, LAYER.routines], [R_FILES0 - 60, LAYER.memory], [R_SKILLS[2], LAYER.skills]]) {
+      ctx.fillStyle = L.color;
+      ctx.fillText(L.label, w / 2 + panX, h / 2 + panY - rad * s - 6);
     }
-    // links (curved through a point pulled toward the center)
-    ctx.lineWidth = 0.6;
-    for (const [a, b] of edges) {
-      const [x1, y1] = pos(a), [x2, y2] = pos(b);
-      const dim = filter && !(match(a) || match(b));
-      ctx.strokeStyle = dim ? 'rgba(160,150,200,0.04)' : 'rgba(180,170,220,0.18)';
-      ctx.beginPath();
-      ctx.moveTo(x1, y1);
-      ctx.quadraticCurveTo((x1 + x2) / 2 + (cx - (x1 + x2) / 2) * 0.3,
-                           (y1 + y2) / 2 + (cy - (y1 + y2) / 2) * 0.3, x2, y2);
-      ctx.stroke();
-    }
-    // nodes
-    for (const n of nodes) {
-      const [x, y] = pos(n);
-      const r = 3 + Math.min(9, (n.size || 1) * 1.5);
-      const dim = !match(n);
-      ctx.beginPath();
-      ctx.arc(x, y, n === hovered ? r + 2 : r, 0, Math.PI * 2);
-      ctx.fillStyle = dim ? n._color + '22' : n._color;
-      ctx.fill();
-      if (labels && !dim && (zoom > 1.4 || n === hovered || filter)) {
-        ctx.fillStyle = 'rgba(230,225,245,0.85)';
-        ctx.font = '10px system-ui';
-        ctx.textAlign = 'left';
-        ctx.fillText(n.name, x + r + 3, y + 3);
-      }
+    if (hovered) {   // hovered node label, upright
+      const [x, y] = toScreen(hovered);
+      ctx.fillStyle = '#fff'; ctx.font = '600 12px system-ui';
+      ctx.fillText(hovered.name, x, y - hovered.r * s - 6);
     }
   }
+
+  const toScreen = n => {
+    const s = screenScale();
+    const x = n.x * Math.cos(rot) - n.y * Math.sin(rot);
+    const y = n.x * Math.sin(rot) + n.y * Math.cos(rot);
+    return [W() / 2 + panX + x * s, H() / 2 + panY + y * s];
+  };
+  const toWorld = (mx, my) => {
+    const s = screenScale();
+    const x = (mx - W() / 2 - panX) / s, y = (my - H() / 2 - panY) / s;
+    return [x * Math.cos(-rot) - y * Math.sin(-rot), x * Math.sin(-rot) + y * Math.cos(-rot)];
+  };
+  const hit = (mx, my) => {
+    const [wx, wy] = toWorld(mx, my);
+    let best = null, bd = (14 / screenScale()) ** 2;
+    for (let gx = -1; gx <= 1; gx++) for (let gy = -1; gy <= 1; gy++)
+      for (const n of grid.get(key(wx + gx * cell, wy + gy * cell)) || []) {
+        const d = (n.x - wx) ** 2 + (n.y - wy) ** 2;
+        if (d < bd) { bd = d; best = n; }
+      }
+    return best;
+  };
 
   function tick(now) {
     if (dead) return;
-    if (spin > 0) {
-      rot += ((now - last) / 1000) * spin * 0.2;
-      draw();
-      raf = requestAnimationFrame(tick);
-    } else raf = null;
-    last = now;
-  }
-  const ensureLoop = () => { last = performance.now(); if (!raf && spin > 0) raf = requestAnimationFrame(tick); };
-
-  // --- interaction
-  const hit = (mx, my) => {
-    let best = null, bd = 144;   // 12px pick radius, squared
-    for (const n of nodes) {
-      const [x, y] = pos(n);
-      const d = (x - mx) ** 2 + (y - my) ** 2;
-      if (d < bd) { bd = d; best = n; }
+    const dt = (now - last) / 1000; last = now;
+    let busy = false;
+    if (spin > 0) { rot += dt * spin * 0.15; busy = true; }
+    if (fly) {
+      fly.t = Math.min(1, fly.t + dt / 0.6);
+      const e = 1 - (1 - fly.t) ** 3;
+      zoom = fly.z0 + (fly.z1 - fly.z0) * e;
+      panX = fly.x0 + (fly.x1 - fly.x0) * e;
+      panY = fly.y0 + (fly.y1 - fly.y0) * e;
+      if (fly.t >= 1) fly = null;
+      busy = true;
     }
-    return best;
-  };
-  let dragging = false, sx = 0, sy = 0, moved = false;
+    if (busy) { draw(); raf = requestAnimationFrame(tick); } else raf = null;
+  }
+  const ensureLoop = () => { if (!raf && (spin > 0 || fly)) { last = performance.now(); raf = requestAnimationFrame(tick); } };
+
+  let dragging = false, moved = false, sx = 0, sy = 0;
   const onDown = e => { dragging = true; moved = false; sx = e.clientX; sy = e.clientY; canvas.style.cursor = 'grabbing'; };
   const onMove = e => {
     const rect = canvas.getBoundingClientRect();
@@ -135,45 +251,50 @@ export function ringsCanvas(el, { nodes, links, onNodeClick, onNodeHover }) {
     const h = hit(e.clientX - rect.left, e.clientY - rect.top);
     if (h !== hovered) { hovered = h; onNodeHover?.(h); draw(); }
   };
-  const onUp = e => {
+  const onUp = () => {
     if (dragging && !moved && hovered) onNodeClick?.(hovered);
     dragging = false; canvas.style.cursor = 'grab';
   };
-  const onWheel = e => {
-    e.preventDefault();
-    zoom = Math.min(6, Math.max(0.4, zoom * (e.deltaY < 0 ? 1.1 : 0.9)));
-    draw();
-  };
+  const onWheel = e => { e.preventDefault(); zoom = Math.min(10, Math.max(0.3, zoom * (e.deltaY < 0 ? 1.1 : 0.9))); draw(); };
   canvas.addEventListener('mousedown', onDown);
   canvas.addEventListener('mousemove', onMove);
   window.addEventListener('mouseup', onUp);
   canvas.addEventListener('wheel', onWheel, { passive: false });
-  const ro = new ResizeObserver(resize);
+  const ro = new ResizeObserver(() => {
+    canvas.width = W() * devicePixelRatio; canvas.height = H() * devicePixelRatio;
+    pattern = null; draw();
+  });
   ro.observe(el);
-  resize();
-  ensureLoop();
+  canvas.width = W() * devicePixelRatio; canvas.height = H() * devicePixelRatio;
+  bake(); draw(); ensureLoop();
 
   return {
     __teardown() {
       dead = true;
       if (raf) cancelAnimationFrame(raf);
+      clearTimeout(bakeTimer);
       ro.disconnect();
+      canvas.removeEventListener('mousedown', onDown);
+      canvas.removeEventListener('mousemove', onMove);
+      canvas.removeEventListener('wheel', onWheel);
       window.removeEventListener('mouseup', onUp);
       canvas.remove();
     },
-    setFilter(q) { filter = q ? q.toLowerCase() : null; draw(); },
-    setLabels(v) { labels = !!v; localStorage.setItem('td.rings.labels', v ? '1' : '0'); draw(); },
+    setFilter(q) { filter = q ? q.toLowerCase() : null; rebake(); },
+    setLabels(v) { labels = !!v; localStorage.setItem('td.rings.labels', v ? '1' : '0'); rebake(); },
     setSpin(v) { spin = +v; localStorage.setItem('td.rings.spin', String(v)); ensureLoop(); if (!spin) draw(); },
     get spin() { return spin; },
     get labels() { return labels; },
-    focus(id) {
+    flyTo(id) {
       const n = byId.get(id);
       if (!n) return;
-      zoom = 2.2;
-      const R = Math.min(el.clientWidth, el.clientHeight) / 2 - 24;
-      const a = n._a + rot, r = n._rf * R * zoom;
-      panX = -Math.cos(a) * r; panY = -Math.sin(a) * r;
-      hovered = n; onNodeHover?.(n); draw();
+      const s0 = Math.min(W(), H()) / (2 * WORLD) * 2.0;   // screenScale at zoom=1
+      const z1 = 3;
+      const x = n.x * Math.cos(rot) - n.y * Math.sin(rot);
+      const y = n.x * Math.sin(rot) + n.y * Math.cos(rot);
+      fly = { t: 0, z0: zoom, z1, x0: panX, y0: panY, x1: -x * s0 * z1, y1: -y * s0 * z1 };
+      hovered = n; onNodeHover?.(n);
+      ensureLoop();
     },
   };
 }
