@@ -94,3 +94,43 @@ Canvas-2D renderer, exported as `ringsCanvas(el, opts)` returning a handle with
 - Live verify (required): `python3 cli.py dashboard --no-open`, `curl /api/workspace`
   shows real MCPs/routines/skills with counts reported, Brain tab eyeballed: rings render,
   search dims/zooms, click opens memory entry, no console errors.
+
+## V2 addendum (approved 2026-07-08): visual parity with reference
+
+V1 shipped structurally correct but visually unlike the reference. V2 amends:
+
+### Backend
+- `/api/workspace` gains `files`: scan roots from `WORKSPACE_ROOTS` env
+  (default `/Volumes/SSD_CESAR/Developer`), each top-level dir = a department.
+  Per file: `name, path (absolute), rel, dept, size, mtime, ext`. Skip `.git`,
+  `node_modules`, `venv`, `.venv`, `__pycache__`, hidden entries. Cap 2000
+  files per department, largest first.
+- New `POST /api/open` `{path}`: opens the file locally (`open` on macOS,
+  `xdg-open` on Linux, `os.startfile` on Windows). Rejects paths outside the
+  scanned roots and `~/.claude` (403).
+
+### Renderer v2 (rings.js rewrite)
+- **Dense arc packing**: each department fills an angular wedge of the middle
+  band with multi-row concentric arcs of dots (dot radius ~ log file size),
+  a labeled hub node at the wedge's inner edge, and that project's memories as
+  larger glowing orbs in the innermost rows. Wedge width ∝ sqrt(file count).
+- **Center node** labeled `CLAUDE.MD`, linked to hubs.
+- **Shapes per layer**: applications = hexagon badges (outer blue ring),
+  skills = 4-point sparkles (orange rows around center), routines = circled
+  dots (yellow ring), memories/files = glowing orbs.
+- **Atmosphere**: node glow, faint hex-grid background, ring guide circles,
+  upright band labels (APPLICATIONS / ROUTINES / MEMORY / SKILLS).
+- **Performance**: scene baked once to an offscreen canvas; per-frame the
+  bitmap is blitted with rotate/zoom/pan transforms. Rebake only on
+  filter/label changes. Hit-testing by inverse transform. Works at 30k+ nodes.
+- **Fly-to**: animated pan/zoom to a node.
+
+### Panel v2
+- **Search dropdown**: results list (colored dot, name, dimmed path), click
+  = fly-to. `/` focuses, Esc closes.
+- **Detail card on click** (replaces hover-only text): name, badges (dept,
+  layer), `size · age · ext`, path, buttons Fly to / Copy path / Open on
+  device, connections list for memories.
+
+Still out: Force/Circle/Hex layouts, Folders view, spring/size sliders,
+in-dashboard file viewer.
