@@ -213,7 +213,7 @@ export default async function (root) {
     detail.innerHTML = `
       <div class="gi-name">${fmt.htmlSafe(n.name)}</div>
       <div style="margin:4px 0">${badges}</div>
-      <div class="gi-meta">${[fmtSize(m.size), fmtAge(m.mtime), m.ext].filter(Boolean).join(' · ')}</div>
+      <div class="gi-meta">${[fmtSize(m.size), fmtAge(m.mtime), fmt.htmlSafe(m.ext || '')].filter(Boolean).join(' · ')}</div>
       ${m.path || m.rel ? `<div class="gi-meta mono" style="word-break:break-all">${fmt.htmlSafe(m.rel || m.path)}</div>` : ''}
       <div class="rings-actions">
         <button data-fly="${fmt.htmlSafe(n.id)}">Fly to</button>
