@@ -5,7 +5,7 @@
 //
 // Renders a fixed, pointer-events-none full-screen layer behind the dashboard.
 // Drives --hud-live for accent glows. Uses subtle particle count by default
-// to coexist with the existing heavy galaxy canvas on /brain.
+// to coexist with the rings canvas on /brain.
 //
 // API:
 //   mountHudBackground({ variant?: 'full' | 'subtle' }) -> { unmount }

@@ -1,4 +1,4 @@
-// charts.js — themed ECharts wrappers (the Brain galaxy lives in galaxy.js)
+// charts.js — themed ECharts wrappers
 
 const PALETTE = ['#4A9EFF', '#7C5CFF', '#3FB68B', '#E8A23B', '#E5484D', '#5BCEDA', '#F472B6'];
 
@@ -128,43 +128,6 @@ export function groupedBarChart(el, { categories, series, formatter }) {
       emphasis: { focus: 'series' },
     })),
   });
-  return c;
-}
-
-export function forceGraph(el, { nodes, links, categories, onNodeClick }) {
-  const c = mount(el);
-  c.setOption({
-    color: PALETTE,
-    tooltip: {
-      trigger: 'item',
-      backgroundColor: '#0F1419', borderColor: '#283040', borderWidth: 1,
-      textStyle: { color: '#E6EDF3', fontFamily: 'Inter', fontSize: 12 },
-      formatter: p => p.dataType === 'node'
-        ? `<b>${p.data.name}</b>${p.data.desc ? '<br/>' + p.data.desc : ''}`
-        : '',
-    },
-    legend: {
-      textStyle: { color: '#8B98A6' }, top: 0, right: 0,
-      icon: 'roundRect', itemWidth: 8, itemHeight: 8, type: 'scroll',
-      data: categories,
-    },
-    series: [{
-      type: 'graph', layout: 'force', roam: true,
-      // Per-link styling: explicit [[links]] read solid, computed soft edges faint/dashed.
-      data: nodes,
-      links: links.map(l => l.kind === 'soft'
-        ? { ...l, lineStyle: { color: '#2B3442', width: 0.8, type: 'dashed', opacity: 0.5, curveness: 0.1 } }
-        : l),
-      categories: categories.map(name => ({ name })),
-      label: { show: true, position: 'right', color: '#E6EDF3', fontSize: 11 },
-      force: { repulsion: 240, edgeLength: 90, gravity: 0.1 },
-      lineStyle: { color: '#3A4556', width: 1.5, curveness: 0.1 },
-      itemStyle: { borderColor: '#0F1419', borderWidth: 1 },
-      emphasis: { focus: 'adjacency', label: { show: true } },
-      symbolSize: 16,
-    }],
-  });
-  if (onNodeClick) c.on('click', p => { if (p.dataType === 'node') onNodeClick(p.data); });
   return c;
 }
 

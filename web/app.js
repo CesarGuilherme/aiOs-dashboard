@@ -63,8 +63,8 @@ function setActiveTab(routeKey) {
   $$('header.topbar nav a').forEach(a => a.classList.toggle('active', a.dataset.route === routeKey));
 }
 
-// A route's default export may return a cleanup fn (e.g. the Brain galaxy cancels
-// its animation loop + global listeners). Run it before swapping in the next view
+// A route's default export may return a cleanup fn (e.g. the Brain rings cancel
+// their animation loop + global listeners). Run it before swapping in the next view
 // — including on SSE-triggered re-renders — so nothing leaks or stacks up.
 let currentCleanup = null;
 
