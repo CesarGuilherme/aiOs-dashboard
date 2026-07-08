@@ -151,7 +151,7 @@ async function boot() {
     es.onmessage = ev => {
       try {
         const evt = JSON.parse(ev.data);
-        if (evt.type === 'scan') {
+        if (evt.type === 'scan' && !location.hash.startsWith('#/brain')) {
           clearTimeout(scanTimer);
           scanTimer = setTimeout(() => render({ preserveScroll: true }), 1500);
         }
