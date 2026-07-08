@@ -21,7 +21,7 @@ from .tips import all_tips, dismiss_tip
 from .memory import get_brain, quarantine_memory, promote_memory
 from .scanner import scan_dir
 from .skills import cached_catalog
-from .workspace import scan_workspace
+from .workspace import scan_workspace, workspace_roots, allowed_open_path, open_on_device
 
 
 WEB_ROOT = Path(__file__).resolve().parent.parent / "web"
@@ -226,6 +226,21 @@ def build_handler(db_path: str, projects_dir: str):
             if url.path == "/api/brain/keep":
                 res = promote_memory(projects_dir, body.get("slug", ""), body.get("file", ""))
                 return _send_json(self, res, status=200 if res.get("ok") else 404)
+            if url.path == "/api/open":
+                target = str(body.get("path", ""))
+                claude_dir = Path.home() / ".claude"
+                if not allowed_open_path(target, workspace_roots(), claude_dir):
+                    self.send_response(403)
+                    self.end_headers()
+                    return
+                if not Path(target).exists():
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+                open_on_device(target)
+                self.send_response(204)
+                self.end_headers()
+                return
             self.send_response(404)
             self.end_headers()
 

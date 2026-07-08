@@ -1,9 +1,10 @@
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
 
-from token_dashboard.workspace import scan_workspace
+from token_dashboard.workspace import scan_workspace, allowed_open_path
 
 
 def _build_fake_claude(root: Path):
@@ -57,8 +58,66 @@ class WorkspaceScanTests(unittest.TestCase):
 
     def test_missing_everything_yields_empty_lists(self):
         empty = Path(self.tmp.name) / "nope" / ".claude"
-        self.assertEqual(scan_workspace(empty),
-                         {"applications": [], "routines": [], "skills": []})
+        self.assertEqual(scan_workspace(empty, roots=[]),
+                         {"applications": [], "routines": [], "skills": [], "files": []})
+
+
+class FileScanTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.claude = Path(self.tmp.name) / ".claude"   # empty — files only
+        self.dev = Path(self.tmp.name) / "Developer"
+        proj = self.dev / "proj-a"
+        (proj / "src").mkdir(parents=True)
+        (proj / "src" / "big.py").write_text("x" * 500)
+        (proj / "small.md").write_text("y")
+        (proj / ".hidden").write_text("z")
+        (proj / "node_modules" / "dep").mkdir(parents=True)
+        (proj / "node_modules" / "dep" / "index.js").write_text("no")
+        (self.dev / "proj-b").mkdir()
+        (self.dev / "proj-b" / "only.txt").write_text("t")
+        (self.dev / ".DS_Store").write_text("")   # hidden root entry ignored
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_files_scanned_with_fields_and_skips(self):
+        files = scan_workspace(self.claude, roots=[self.dev])["files"]
+        rels = {f["rel"] for f in files}
+        self.assertEqual(rels, {"src/big.py", "small.md", "only.txt"})
+        big = next(f for f in files if f["name"] == "big.py")
+        self.assertEqual(big["dept"], "proj-a")
+        self.assertEqual(big["ext"], "py")
+        self.assertEqual(big["size"], 500)
+        self.assertTrue(Path(big["path"]).is_absolute())
+        self.assertIn("T", big["mtime"])   # ISO timestamp
+
+    def test_cap_largest_first(self):
+        proj = self.dev / "proj-c"
+        proj.mkdir()
+        for i in range(30):
+            (proj / f"f{i:02}.txt").write_text("x" * (i + 1))
+        from token_dashboard import workspace
+        old = workspace.MAX_FILES_PER_DEPT
+        workspace.MAX_FILES_PER_DEPT = 10
+        try:
+            files = [f for f in scan_workspace(self.claude, roots=[self.dev])["files"]
+                     if f["dept"] == "proj-c"]
+        finally:
+            workspace.MAX_FILES_PER_DEPT = old
+        self.assertEqual(len(files), 10)
+        self.assertEqual(min(f["size"] for f in files), 21)   # kept the 10 largest
+
+    def test_missing_root_yields_empty(self):
+        files = scan_workspace(self.claude, roots=[Path(self.tmp.name) / "nope"])["files"]
+        self.assertEqual(files, [])
+
+    def test_allowed_open_path(self):
+        inside = self.dev / "proj-a" / "small.md"
+        self.assertTrue(allowed_open_path(str(inside), [self.dev], self.claude))
+        self.assertFalse(allowed_open_path("/etc/passwd", [self.dev], self.claude))
+        sneaky = str(self.dev / ".." / "outside.txt")
+        self.assertFalse(allowed_open_path(sneaky, [self.dev], self.claude))
 
 
 if __name__ == "__main__":
