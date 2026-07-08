@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <defs>
+    <!-- deep space tile -->
+    <radialGradient id="space" cx="38%" cy="32%" r="80%">
+      <stop offset="0%" stop-color="#161B2E"/>
+      <stop offset="60%" stop-color="#0A0E1C"/>
+      <stop offset="100%" stop-color="#05070D"/>
+    </radialGradient>
+    <!-- galactic core: white-hot → violet → blue → fade -->
+    <radialGradient id="core" cx="50%" cy="50%" r="50%">
+      <stop offset="0%"  stop-color="#FFFFFF"/>
+      <stop offset="22%" stop-color="#CDB4FF"/>
+      <stop offset="48%" stop-color="#7C5CFF"/>
+      <stop offset="78%" stop-color="#4A9EFF"/>
+      <stop offset="100%" stop-color="#4A9EFF" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="arm" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#9FE0FF"/>
+      <stop offset="100%" stop-color="#7C5CFF"/>
+    </linearGradient>
+    <filter id="soft" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="0.7"/>
+    </filter>
+  </defs>
+
+  <rect width="64" height="64" rx="14" fill="url(#space)"/>
+
+  <!-- tilted galactic disc -->
+  <g transform="translate(32 32) rotate(-28)">
+    <ellipse rx="24" ry="9" fill="none" stroke="url(#arm)" stroke-width="1.6" opacity="0.55"/>
+    <ellipse rx="17" ry="6" fill="none" stroke="url(#arm)" stroke-width="1.2" opacity="0.35"/>
+    <!-- glowing core -->
+    <circle r="13" fill="url(#core)"/>
+    <circle r="3.4" fill="#FFFFFF" filter="url(#soft)"/>
+    <!-- orbiting stars on the disc -->
+    <circle cx="24" cy="0" r="1.7" fill="#9FE0FF"/>
+    <circle cx="-21" cy="2" r="1.3" fill="#CDB4FF"/>
+    <circle cx="6" cy="-7.5" r="1.1" fill="#FFD9A0"/>
+  </g>
+
+  <!-- scattered field stars -->
+  <circle cx="13" cy="14" r="1.1" fill="#FFFFFF" opacity="0.9"/>
+  <circle cx="52" cy="18" r="0.9" fill="#9FC4FF" opacity="0.8"/>
+  <circle cx="49" cy="49" r="1.2" fill="#FFFFFF" opacity="0.85"/>
+  <circle cx="16" cy="50" r="0.8" fill="#FFD9A0" opacity="0.8"/>
+</svg>

@@ -1,0 +1,579 @@
+:root {
+  --bg:        #0A0E14;
+  --panel:     #0F1419;
+  --panel-2:   #131922;
+  --border:    #1F2630;
+  --border-2:  #283040;
+  --text:      #E6EDF3;
+  --muted:     #8B98A6;
+  --muted-2:   #5A6573;
+  --accent:    #4A9EFF;
+  --accent-2:  #7C5CFF;
+  --good:      #3FB68B;
+  --warn:      #E8A23B;
+  --bad:       #E5484D;
+  --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Consolas, monospace;
+  --sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+* { box-sizing: border-box; }
+html, body {
+  background: var(--bg); color: var(--text);
+  margin: 0; padding: 0;
+  font-family: var(--sans); font-size: 13px; line-height: 1.55;
+  font-feature-settings: 'cv11', 'ss01';
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* topbar */
+header.topbar {
+  display: flex; align-items: center; gap: 16px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(180deg, var(--panel) 0%, var(--bg) 100%);
+  position: sticky; top: 0; z-index: 10;
+  backdrop-filter: saturate(180%) blur(8px);
+}
+.topbar .brand {
+  font-weight: 600; letter-spacing: -0.01em; font-size: 14px;
+  display: flex; align-items: center; gap: 8px;
+}
+.topbar .brand::before {
+  content: ""; display: inline-block; width: 8px; height: 8px;
+  background: var(--accent); border-radius: 2px;
+  box-shadow: 0 0 12px var(--accent);
+}
+.topbar nav { display: flex; gap: 2px; margin-left: 12px; }
+.topbar nav a {
+  padding: 5px 10px; border-radius: 6px;
+  color: var(--muted); font-size: 13px; font-weight: 500;
+  text-transform: capitalize;
+  transition: color 120ms, background 120ms;
+}
+.topbar nav a:hover { color: var(--text); background: var(--panel-2); text-decoration: none; }
+.topbar nav a.active { color: var(--text); background: var(--panel-2); }
+
+.topbar .spacer { margin-left: auto; }
+.topbar .pill {
+  padding: 4px 10px; border-radius: 6px;
+  background: var(--panel-2); border: 1px solid var(--border);
+  color: var(--muted); font-size: 12px; font-family: var(--mono);
+}
+
+/* main */
+main#app { padding: 24px 20px; max-width: 1400px; margin: 0 auto; }
+
+/* card */
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 18px;
+}
+.card h2 { margin: 0 0 14px; font-size: 16px; font-weight: 600; letter-spacing: -0.01em; }
+.card h3 { margin: 0 0 10px; font-size: 13px; font-weight: 600; color: var(--text); }
+
+/* layout */
+.row { display: grid; gap: 16px; }
+.row.cols-7 { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.row.cols-4 { grid-template-columns: repeat(4, 1fr); }
+.row.cols-3 { grid-template-columns: repeat(3, 1fr); }
+.row.cols-2 { grid-template-columns: 1fr 1fr; }
+@media (max-width: 1100px) {
+  .row.cols-7 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@media (max-width: 720px) {
+  .row.cols-7 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .row.cols-4 { grid-template-columns: repeat(2, 1fr); }
+  .row.cols-2 { grid-template-columns: 1fr; }
+}
+
+/* KPI */
+.kpi { padding: 16px; min-width: 0; }
+.kpi .label {
+  color: var(--muted); text-transform: uppercase;
+  font-size: 10px; letter-spacing: 0.08em; font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.kpi .value {
+  font-family: var(--mono); font-size: 22px; font-weight: 500;
+  font-variant-numeric: tabular-nums; letter-spacing: -0.03em;
+  margin-top: 6px; line-height: 1.1;
+  white-space: nowrap;
+}
+.kpi.cost .value { color: var(--good); }
+/* compact tokens like "4.1B" are short — give them a touch more room */
+.kpi .value.big { font-size: 24px; }
+.kpi .delta { font-family: var(--mono); font-size: 12px; margin-top: 4px; }
+.kpi .delta.up   { color: var(--good); }
+.kpi .delta.down { color: var(--bad);  }
+.kpi .sub { color: var(--muted); font-size: 11px; margin-top: 2px; }
+
+/* tables */
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td {
+  text-align: left; padding: 9px 12px;
+  border-bottom: 1px solid var(--border);
+}
+th {
+  color: var(--muted); font-weight: 600;
+  text-transform: uppercase; font-size: 10px; letter-spacing: 0.06em;
+}
+tbody tr { transition: background 100ms; }
+tbody tr:hover { background: var(--panel-2); }
+td.num, th.num {
+  font-family: var(--mono); text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+td.mono { font-family: var(--mono); color: var(--muted); }
+
+/* badges */
+.badge {
+  display: inline-block; padding: 2px 7px; border-radius: 4px;
+  font-size: 11px; background: var(--panel-2); color: var(--muted);
+  border: 1px solid var(--border);
+  font-family: var(--mono); font-weight: 500;
+}
+.badge.opus    { color: var(--accent-2); border-color: rgba(124,92,255,0.3); background: rgba(124,92,255,0.08); }
+.badge.sonnet  { color: var(--accent);   border-color: rgba(74,158,255,0.3); background: rgba(74,158,255,0.08); }
+.badge.haiku   { color: var(--good);     border-color: rgba(63,182,139,0.3); background: rgba(63,182,139,0.08); }
+.badge.auto    { color: var(--good); border-color: rgba(63,182,139,0.4); background: rgba(63,182,139,0.12); text-transform: uppercase; font-size: 10px; letter-spacing: 0.04em; }
+
+/* drawer */
+#drawer .card { margin-top: 16px; border-color: var(--border-2); }
+#drawer pre {
+  font-family: var(--mono); white-space: pre-wrap; word-break: break-word;
+  background: var(--bg); padding: 12px; border-radius: 6px;
+  border: 1px solid var(--border);
+  max-height: 400px; overflow-y: auto;
+  font-size: 12px; line-height: 1.5;
+}
+
+/* buttons */
+button, select {
+  background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--border); border-radius: 6px;
+  padding: 6px 12px; font-family: var(--sans); font-size: 13px;
+  cursor: pointer;
+}
+button:hover, select:hover { border-color: var(--border-2); }
+button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+button.primary:hover { background: #5BA8FF; }
+button.ghost { background: transparent; color: var(--muted); }
+button.ghost.danger { color: var(--bad); }
+button.ghost.danger:hover { border-color: var(--bad); }
+.tip-head button.ghost { padding: 3px 9px; font-size: 12px; }
+
+/* tip rows */
+.tip {
+  border: 1px solid var(--border); border-radius: 8px;
+  padding: 14px; margin: 10px 0; background: var(--panel-2);
+}
+.tip-head { display: flex; align-items: center; gap: 10px; }
+.tip-head strong { font-size: 13px; }
+.tip-body { margin: 8px 0 0; color: var(--muted); }
+
+/* brain connections graph */
+.graph-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin: -8px 0 10px; }
+.graph-head .range-tabs { flex: none; }
+.galaxy {
+  position: relative;
+  border-radius: 18px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 22% 46%, rgba(116, 69, 205, 0.28), transparent 20%),
+    radial-gradient(circle at 67% 28%, rgba(74, 58, 150, 0.23), transparent 22%),
+    radial-gradient(circle at 50% 80%, rgba(63, 20, 92, 0.22), transparent 30%),
+    #060311;
+  border: 1px solid rgba(104, 78, 151, 0.38);
+  box-shadow:
+    inset 0 0 120px rgba(0,0,0,0.72),
+    inset 0 0 0 1px rgba(218, 196, 255, 0.035),
+    0 14px 42px rgba(0,0,0,0.32);
+}
+#brain-graph { width: 100%; height: min(68vw, 680px); min-height: 520px; }
+
+/* Galaxy HUD — title + counts + controls, top-left; click-through. */
+.galaxy-hud {
+  position: absolute; top: 20px; left: 22px;
+  pointer-events: none; user-select: none;
+  text-shadow: 0 1px 8px rgba(0,0,0,0.8);
+}
+.galaxy-hud .gx-title {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 15px; font-weight: 800; letter-spacing: 0.045em;
+  text-transform: uppercase; color: rgba(197, 166, 235, 0.74);
+}
+.galaxy-hud .gx-orbit { color: rgba(220, 204, 255, 0.78); font-size: 17px; line-height: 1; }
+.galaxy-hud .gx-count { font-size: 18px; font-weight: 700; color: rgba(237, 231, 255, 0.78); margin-top: 6px; }
+.galaxy-hud .gx-hint { font-size: 15px; color: rgba(224, 217, 239, 0.62); margin-top: 14px; }
+.galaxy-hud .gx-legend {
+  font-size: 14px; color: rgba(224, 217, 239, 0.62); margin-top: 8px;
+}
+.galaxy-hud .gx-legend::before {
+  content: "✦"; margin-right: 5px; color: rgba(255,255,255,0.78);
+}
+
+.galaxy-stamp {
+  position: absolute; right: 20px; bottom: 20px;
+  pointer-events: none; user-select: none;
+  padding: 11px 16px 12px 48px;
+  min-width: 132px;
+  border-radius: 9px;
+  background: rgba(4, 4, 13, 0.64);
+  border: 1px solid rgba(199, 184, 255, 0.22);
+  box-shadow: 0 12px 34px rgba(0,0,0,0.44), inset 0 0 24px rgba(132,91,255,0.05);
+  backdrop-filter: blur(7px);
+}
+.galaxy-stamp::before {
+  content: "✣";
+  position: absolute; left: 18px; top: 17px;
+  color: rgba(231, 225, 243, 0.86);
+  font-size: 17px;
+  text-shadow: 0 0 12px rgba(210, 190, 255, 0.45);
+}
+.galaxy-stamp .gs-date { font-size: 18px; color: rgba(238, 233, 246, 0.82); }
+.galaxy-stamp .gs-meta { font-size: 12px; color: rgba(205, 196, 218, 0.68); margin-top: 6px; }
+
+/* Hover card — bottom-right, shows the star under the cursor. */
+.galaxy-info {
+  position: absolute; bottom: 110px; right: 20px;
+  pointer-events: none; max-width: 260px;
+  padding: 9px 12px; border-radius: 8px;
+  background: rgba(8,8,20,0.76);
+  border: 1px solid rgba(199,184,255,0.24);
+  box-shadow: 0 6px 24px rgba(0,0,0,0.5);
+  backdrop-filter: blur(6px);
+}
+.galaxy-info .gi-name { font-size: 13px; font-weight: 600; color: var(--text); }
+.galaxy-info .gi-meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+/* time-range tabs */
+.range-tabs { display: inline-flex; background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 2px; }
+.range-tabs button {
+  background: transparent; border: 0; padding: 4px 10px; border-radius: 4px;
+  color: var(--muted); font-size: 12px; font-family: var(--mono);
+}
+.range-tabs button.active { background: var(--bg); color: var(--text); }
+
+/* privacy blur */
+.blur-sensitive { transition: filter 120ms; }
+body.privacy-on .blur-sensitive { filter: blur(6px); }
+
+/* first-run modal */
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(10,14,20,0.85);
+  display: grid; place-items: center; z-index: 50;
+  backdrop-filter: blur(8px);
+}
+.modal {
+  background: var(--panel); border: 1px solid var(--border-2);
+  border-radius: 12px; padding: 24px; max-width: 460px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+}
+.modal h2 { margin: 0 0 8px; }
+.modal p { color: var(--muted); margin: 0 0 16px; }
+.modal .actions { display: flex; gap: 8px; align-items: center; margin-top: 16px; }
+
+/* utility */
+.muted { color: var(--muted); }
+.flex { display: flex; align-items: center; gap: 8px; }
+.spacer { flex: 1; }
+hr.divider { border: 0; border-top: 1px solid var(--border); margin: 16px 0; }
+
+/* glossary */
+.glossary summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex; align-items: center; gap: 8px;
+}
+.glossary summary::-webkit-details-marker { display: none; }
+.glossary summary::before {
+  content: "▸"; color: var(--muted); font-size: 11px;
+  transition: transform 120ms;
+}
+.glossary[open] summary::before { transform: rotate(90deg); }
+.glossary dl {
+  margin: 14px 0 0; display: grid;
+  grid-template-columns: 160px 1fr; gap: 10px 20px;
+}
+.glossary dt {
+  color: var(--text); font-weight: 600; font-size: 12px;
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
+.glossary dd { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.55; }
+.glossary dd code { background: var(--panel-2); padding: 1px 5px; border-radius: 3px; font-family: var(--mono); font-size: 12px; }
+@media (max-width: 720px) {
+  .glossary dl { grid-template-columns: 1fr; gap: 4px 0; }
+  .glossary dt { margin-top: 10px; }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   JARVIS / IRONMAN HUD LAYOUT (ported from jarvis_ui feat/ironman-hud-ui)
+   Source: HudBackground.tsx, HudCorners.tsx, HudPanel.tsx + globals.css
+   Applied when <html class="hud-theme"> (or body). See hud-background.js.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.hud-theme {
+  color-scheme: dark;
+
+  /* HUD accent ramp */
+  --hud-cyan:      #27e0ff;
+  --hud-cyan-soft: rgba(39, 224, 255, 0.5);
+  --hud-cyan-dim:  rgba(39, 224, 255, 0.12);
+  --hud-gold:      #ffb53d;
+  --hud-gold-soft: rgba(255, 181, 61, 0.5);
+  --hud-red:       #ff4133;
+  --font-hud:      ui-monospace, 'JetBrains Mono', 'SF Mono', system-ui, sans-serif;
+
+  /* Deep void surfaces (override base tokens) */
+  --bg:           #050410;
+  --panel:        rgba(8, 12, 26, 0.82);
+  --panel-2:      #070611;
+  --border:       rgba(120, 200, 255, 0.18);
+  --border-2:     rgba(120, 220, 255, 0.28);
+  --text:         rgba(226, 244, 255, 0.92);
+  --muted:        rgba(196, 226, 255, 0.62);
+  --muted-2:      rgba(170, 210, 255, 0.44);
+  --accent:       #27e0ff;
+  --accent-2:     #ffb53d;
+
+  /* Ink hierarchy */
+  --ink:   rgba(226, 244, 255, 0.92);
+  --ink-2: rgba(196, 226, 255, 0.62);
+  --ink-3: rgba(170, 210, 255, 0.44);
+  --ink-4: rgba(150, 195, 255, 0.26);
+
+  /* Separators / fills */
+  --separator:        rgba(120, 220, 255, 0.14);
+  --separator-strong: rgba(120, 220, 255, 0.24);
+  --fill:   rgba(40, 130, 190, 0.08);
+  --fill-2: rgba(40, 130, 190, 0.14);
+
+  /* Status */
+  --good:   #30d9b8;
+  --warn:   #ffb53d;
+  --bad:    #ff4133;
+
+  /* Chart tokens tuned for void */
+  --chart-tick:     rgba(180, 220, 255, 0.5);
+  --chart-grid:     rgba(120, 200, 255, 0.06);
+  --chart-contrast: #050410;
+
+  /* Glass / panel glow language (cyan primary) */
+  --glass-tint:        rgba(8, 18, 34, 0.5);
+  --glass-tint-soft:   rgba(10, 22, 40, 0.4);
+  --glass-edge:        rgba(130, 235, 255, 0.55);
+  --glass-edge-dim:    rgba(255, 181, 61, 0.18);
+
+  /* Shadows used by cards/panels */
+  --shadow-card:
+    0 0 0 0.5px rgba(120, 220, 255, 0.10),
+    0 40px 100px rgba(0, 0, 0, 0.85),
+    0 0 60px rgba(39, 224, 255, 0.10),
+    inset 0 1px 0 rgba(130, 235, 255, 0.2);
+}
+
+/* Background + scanlines utilities (apply to main containers or html) */
+.hud-void-bg {
+  background:
+    radial-gradient(circle at 50% 52%, rgba(39, 150, 224, 0.13), transparent 40%),
+    radial-gradient(circle at 50% 92%, rgba(255, 160, 50, 0.06), transparent 30%),
+    linear-gradient(180deg, #050610 0%, #0a0817 48%, #04030a 100%);
+}
+
+.hud-scanlines {
+  position: relative;
+}
+.hud-scanlines::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  pointer-events: none;
+  background:
+    linear-gradient(rgba(150, 220, 255, 0.025) 50%, rgba(0, 0, 0, 0.07) 50%),
+    radial-gradient(circle at 50% 48%, transparent 0 54%, rgba(0, 0, 0, 0.4) 94%);
+  background-size: 100% 4px, 100% 100%;
+  mix-blend-mode: screen;
+  opacity: 0.5;
+}
+
+/* Signature HUD panel (glass + left accent rail + corner glow) */
+.hud-panel {
+  --hud-accent: var(--hud-cyan);
+  --hud-accent-soft: var(--hud-cyan-soft);
+  position: relative;
+  border: 1px solid rgba(120, 200, 255, 0.2);
+  border-left: 2.5px solid var(--hud-accent-soft);
+  background: linear-gradient(180deg, rgba(4, 10, 22, 0.9), rgba(6, 8, 20, 0.78));
+  backdrop-filter: saturate(150%) blur(14px);
+  -webkit-backdrop-filter: saturate(150%) blur(14px);
+  box-shadow:
+    0 0 0 1px rgba(39, 224, 255, 0.05),
+    0 0 26px color-mix(in srgb, var(--hud-accent) 18%, transparent),
+    inset 0 0 24px color-mix(in srgb, var(--hud-accent) 5%, transparent);
+  border-radius: 10px;
+}
+.hud-panel-gold {
+  --hud-accent: var(--hud-gold);
+  --hud-accent-soft: var(--hud-gold-soft);
+}
+.hud-panel:hover {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--hud-accent) 14%, transparent),
+    0 0 40px color-mix(in srgb, var(--hud-accent) 30%, transparent),
+    inset 0 0 30px color-mix(in srgb, var(--hud-accent) 8%, transparent);
+}
+
+/* Font treatment for titles / brand (geometric HUD feel; no external font) */
+.font-hud {
+  font-family: var(--font-hud);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* HUD corner brackets (used via JS helper or manually) */
+.hud-corner { border-color: rgba(39,224,255,0.55); }
+
+/* Keyframes (sweep on top rail of panels, flicker on titles, optional scan) */
+@keyframes hud-sweep {
+  0%        { transform: translateX(-100%); opacity: 0; }
+  18%, 82%  { opacity: 1; }
+  100%      { transform: translateX(100%);  opacity: 0; }
+}
+@keyframes hud-flicker {
+  0%, 100%  { opacity: 1; }
+  47%       { opacity: 1; }
+  48%       { opacity: 0.55; }
+  49%       { opacity: 1; }
+  72%       { opacity: 0.78; }
+  73%       { opacity: 1; }
+}
+@keyframes hud-scan-down {
+  0%   { transform: translateY(-100%); opacity: 0; }
+  8%   { opacity: 0.7; }
+  92%  { opacity: 0.7; }
+  100% { transform: translateY(100%); opacity: 0; }
+}
+
+.animate-hud-sweep {
+  animation: hud-sweep 4s ease-in-out infinite;
+}
+.animate-hud-flicker {
+  animation: hud-flicker 3.5s ease-in-out infinite;
+}
+
+/* ── Theme the shell when active ───────────────────────────────────────── */
+
+.hud-theme,
+html.hud-theme,
+body.hud-theme {
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* Ensure main content and top chrome sit above the fixed lattice background */
+.hud-theme main#app { position: relative; z-index: 2; }
+.hud-theme #app > p { color: var(--muted); } /* initial loader */
+
+.hud-theme header.topbar {
+  background: linear-gradient(180deg, rgba(8,12,26,0.95), rgba(5,4,16,0.96));
+  border-bottom-color: var(--border);
+  backdrop-filter: saturate(180%) blur(10px);
+  z-index: 20; /* above lattice + content scanlines */
+}
+.hud-theme .topbar .brand {
+  font-family: var(--font-hud);
+  letter-spacing: 0.06em;
+  color: var(--ink);
+}
+.hud-theme .topbar .brand::before {
+  background: var(--accent);
+  box-shadow: 0 0 14px var(--accent);
+}
+.hud-theme .topbar nav a {
+  color: var(--muted);
+}
+.hud-theme .topbar nav a.active,
+.hud-theme .topbar nav a:hover {
+  color: var(--text);
+  background: rgba(16, 22, 38, 0.7);
+}
+.hud-theme .topbar .pill {
+  background: rgba(8, 12, 26, 0.85);
+  border-color: var(--border);
+  color: var(--muted);
+  font-family: var(--mono);
+}
+
+/* Cards become HUD panels automatically under the theme */
+.hud-theme .card {
+  background: linear-gradient(180deg, rgba(4, 10, 22, 0.9), rgba(6, 8, 20, 0.78));
+  border: 1px solid rgba(120, 200, 255, 0.2);
+  border-left: 2.5px solid var(--hud-cyan-soft, rgba(39,224,255,0.5));
+  border-radius: 10px;
+  box-shadow:
+    0 0 0 1px rgba(39, 224, 255, 0.05),
+    0 0 26px rgba(39, 224, 255, 0.10),
+    inset 0 0 24px rgba(39, 224, 255, 0.04);
+}
+.hud-theme .card:hover {
+  box-shadow:
+    0 0 0 1px rgba(39, 224, 255, 0.12),
+    0 0 40px rgba(39, 224, 255, 0.18),
+    inset 0 0 30px rgba(39, 224, 255, 0.06);
+}
+.hud-theme .card h2,
+.hud-theme .card h3 {
+  color: var(--ink);
+}
+
+/* Range tabs, buttons, badges, tables */
+.hud-theme .range-tabs {
+  background: rgba(8, 12, 26, 0.8);
+  border-color: var(--border);
+}
+.hud-theme .range-tabs button.active {
+  background: #050410;
+  color: var(--text);
+}
+
+.hud-theme button.primary {
+  background: var(--accent);
+  color: #04121a;
+  border-color: var(--accent);
+}
+.hud-theme button.primary:hover {
+  background: #5fe8ff;
+}
+
+.hud-theme .badge.opus    { color: var(--hud-gold); border-color: rgba(255,181,61,0.35); background: rgba(255,181,61,0.08); }
+.hud-theme .badge.sonnet  { color: var(--accent);   border-color: rgba(39,224,255,0.35); background: rgba(39,224,255,0.08); }
+.hud-theme .badge.haiku   { color: var(--good);     border-color: rgba(48,217,184,0.35); background: rgba(48,217,184,0.08); }
+
+.hud-theme table tbody tr:hover { background: rgba(16,22,38,0.6); }
+.hud-theme th { color: var(--muted); }
+
+/* Modal + tip rows keep legibility */
+.hud-theme .modal {
+  background: #070611;
+  border-color: var(--border-2);
+}
+.hud-theme .tip {
+  background: rgba(8,12,26,0.82);
+  border-color: var(--border);
+}
+
+/* Galaxy area (brain tab) keeps its own aesthetic but gains slight tint */
+.hud-theme .galaxy {
+  border-color: rgba(80, 180, 255, 0.28);
+}
+
+/* Small live accent utility (particles drive --hud-live) */
+.hud-live {
+  color: var(--hud-live, #27e0ff);
+}

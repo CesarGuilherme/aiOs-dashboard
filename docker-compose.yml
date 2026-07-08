@@ -1,0 +1,18 @@
+services:
+  token-dashboard:
+    build: .
+    container_name: token-dashboard
+    ports:
+      - "8080:8080"
+    volumes:
+      # Map the .claude folder to allow reading transcripts and persisting the DB
+      - ~/.claude:/data/claude
+      # Live-mount the static frontend so web/ edits show up on a browser refresh
+      # (no rebuild needed; web/ has no build step). Rebuild still required for Python changes.
+      - ./web:/app/web
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8080
+      - CLAUDE_PROJECTS_DIR=/data/claude/projects
+      - TOKEN_DASHBOARD_DB=/data/claude/token-dashboard.db
+    restart: always

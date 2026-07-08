@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Memory Galaxy 3D Real</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body, html {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #06020f;
+            /* Fundo com névoa cósmica radial idêntico ao app original */
+            background-image: radial-gradient(circle at 50% 50%, #1c0d33 0%, #06020f 80%);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            color: #fff;
+            user-select: none;
+        }
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            cursor: grab;
+        }
+        canvas:active {
+            cursor: grabbing;
+        }
+        
+        /* UI Top Left */
+        #ui-top-left {
+            position: absolute;
+            top: 25px;
+            left: 25px;
+            pointer-events: none;
+        }
+        #ui-top-left h1 {
+            font-size: 13px;
+            font-weight: 600;
+            letter-spacing: 2px;
+            color: #bfaee3;
+            text-transform: uppercase;
+            margin-bottom: 4px;
+        }
+        #ui-stats {
+            font-size: 18px;
+            font-weight: 700;
+            margin-bottom: 12px;
+        }
+        #ui-stats span {
+            color: #8f81b3;
+            font-size: 14px;
+            font-weight: 400;
+        }
+        #ui-instructions {
+            font-size: 12px;
+            color: #766596;
+            line-height: 1.6;
+        }
+
+        /* UI Bottom Right */
+        #ui-bottom-right {
+            position: absolute;
+            bottom: 25px;
+            right: 25px;
+            background: rgba(13, 7, 26, 0.85);
+            border: 1px solid rgba(163, 136, 227, 0.15);
+            backdrop-filter: blur(8px);
+            padding: 14px 20px;
+            border-radius: 8px;
+            min-width: 180px;
+            pointer-events: none;
+        }
+        #ui-date {
+            font-size: 14px;
+            font-weight: 600;
+            letter-spacing: 1px;
+            margin-bottom: 4px;
+        }
+        #ui-subtext {
+            font-size: 11px;
+            color: #8c7ba8;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="ui-top-left">
+        <h1>✧ Memory Galaxy</h1>
+        <div id="ui-stats">150 <span>stars</span> · 324 <span>links</span></div>
+        <div id="ui-instructions">
+            drag to rotate 3D · scroll to zoom · hover a star<br>
+            ✦ brighter = dense cluster / core connection
+        </div>
+    </div>
+
+    <div id="ui-bottom-right">
+        <div id="ui-date">✨ 2026-06-16</div>
+        <div id="ui-subtext" id="node-info">Agentic OS · Active</div>
+    </div>
+
+    <canvas id="galaxyCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('galaxyCanvas');
+        const ctx = canvas.getContext('2d');
+
+        const labelBank = [
+            "OpenClaw", "Funnel Strategy", "Hermes Agent", "Claude Code", "Claude", 
+            "Goldie Agency", "Decisions Log", "Julian Goldie SEO", "AI Profit Boardroom", "log"
+        ];
+
+        // Configurações 3D de densidade
+        const STAR_COUNT = 150;
+        const FOV = 350; // Distância focal para efeito de perspectiva
+        let autoRotationSpeed = 0.002; // Rotação contínua da galáxia
+
+        // Ângulos da câmera 3D
+        let angleX = -0.4;
+        let angleY = 0.0;
+        let targetAngleX = -0.4;
+        let targetAngleY = 0.0;
+        let zoom = 1.1;
+        let targetZoom = 1.1;
+
+        let isDragging = false;
+        let prevMouse = { x: 0, y: 0 };
+        let hoveredNode = null;
+
+        let nodes = [];
+        let links = [];
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        // Geração da estrutura da Galáxia em 3D compacto
+        function initGalaxy() {
+            nodes = [];
+            links = [];
+
+            for (let i = 0; i < STAR_COUNT; i++) {
+                // Distribuição elíptica espiral concentrada no centro
+                const angle = Math.random() * Math.PI * 2;
+                // Eleva a potência para puxar a maioria das estrelas para o centro denso
+                const distance = Math.pow(Math.random(), 2.2) * 320; 
+
+                // Coordenadas esféricas comprimidas para achatar a galáxia no plano XZ
+                const x = Math.cos(angle) * distance;
+                const y = (Math.random() - 0.5) * (40 + distance * 0.15); // Espessura do disco
+                const z = Math.sin(angle) * distance;
+
+                // Cores originais (Predomínio roxo/branco, com raros cianos, rosas e ouros)
+                let color = "225, 215, 255"; 
+                const rand = Math.random();
+                if (rand > 0.96) color = "110, 220, 255";      // Ciano
+                else if (rand > 0.92) color = "255, 195, 120"; // Dourado
+                else if (rand > 0.88) color = "255, 120, 160"; // Rosa
+
+                let label = "";
+                if (i < 35) { // Limita labels para não poluir
+                    label = labelBank[Math.floor(Math.random() * labelBank.length)];
+                }
+
+                nodes.push({
+                    id: i,
+                    x: x, y: y, z: z,
+                    projX: 0, projY: 0, projScale: 0, // Calculados na projeção
+                    radius: 2.5 + Math.random() * 4,
+                    label: label,
+                    color: color,
+                    pulse: Math.random() * Math.PI,
+                    connections: 0
+                });
+            }
+
+            // Gerar conexões por proximidade tridimensional pura
+            for (let i = 0; i < nodes.length; i++) {
+                let targets = nodes
+                    .map((n, idx) => ({ idx, dist: Math.hypot(n.x - nodes[i].x, n.y - nodes[i].y, n.z - nodes[i].z) }))
+                    .filter(t => t.idx !== i)
+                    .sort((a, b) => a.dist - b.dist);
+
+                // Forçar conexões para criar malha densa de teias
+                const maxConnections = 2 + Math.floor(Math.random() * 3);
+                for (let c = 0; c < maxConnections; c++) {
+                    if (!targets[c] || targets[c].dist > 180) break;
+                    const targetIdx = targets[c].idx;
+
+                    const exists = links.some(l => (l.source === i && l.target === targetIdx) || (l.source === targetIdx && l.target === i));
+                    if (!exists) {
+                        links.push({ source: i, target: targetIdx });
+                        nodes[i].connections++;
+                        nodes[targetIdx].connections++;
+                    }
+                }
+            }
+        }
+
+        // Eventos de Navegação e Órbita
+        window.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            prevMouse = { x: e.clientX, y: e.clientY };
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (isDragging) {
+                const dx = e.clientX - prevMouse.x;
+                const dy = e.clientY - prevMouse.y;
+
+                targetAngleY += dx * 0.005;
+                targetAngleX += dy * 0.005;
+
+                prevMouse = { x: e.clientX, y: e.clientY };
+            } else {
+                // Hover focado no plano projetado 2D (considerando quem está mais perto do Z)
+                let found = null;
+                let maxZ = -Infinity;
+
+                for (let node of nodes) {
+                    const dist = Math.hypot(node.projX - e.clientX, node.projY - e.clientY);
+                    if (dist < (node.projScale * node.radius) + 12) {
+                        if (node.projScale > maxZ) {
+                            maxZ = node.projScale;
+                            found = node;
+                        }
+                    }
+                }
+                hoveredNode = found;
+            }
+        });
+
+        window.addEventListener('mouseup', () => isDragging = false);
+        window.addEventListener('mouseleave', () => isDragging = false);
+
+        window.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            if (e.deltaY < 0) targetZoom *= 1.1;
+            else targetZoom /= 1.1;
+            targetZoom = Math.max(0.4, Math.min(targetZoom, 2.5));
+        }, { passive: false });
+
+
+        // Loop de Renderização Física e Gráfica
+        function render() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Suavização dos movimentos (Inércia)
+            angleX += (targetAngleX - angleX) * 0.08;
+            angleY += (targetAngleY - angleY) * 0.08;
+            zoom += (targetZoom - zoom) * 0.08;
+
+            // Giro automático contínuo integrado à órbita se não estiver arrastando
+            if (!isDragging) {
+                targetAngleY += autoRotationSpeed;
+            }
+
+            const cx = canvas.width / 2;
+            const cy = canvas.height / 2;
+
+            const cosX = Math.cos(angleX);
+            const sinX = Math.sin(angleX);
+            const cosY = Math.cos(angleY);
+            const sinY = Math.sin(angleY);
+
+            // Passo 1: Calcular transformações de matriz de rotação 3D e Perspectiva
+            for (let node of nodes) {
+                // Rotação Y (Horizontal)
+                let x1 = node.x * cosY - node.z * sinY;
+                let z1 = node.z * cosY + node.x * sinY;
+
+                // Rotação X (Vertical)
+                let y2 = node.y * cosX - z1 * sinX;
+                let z2 = z1 * cosX + node.y * sinX;
+
+                // Translação Z baseada no multiplicador de Zoom
+                let finalZ = z2 - (450 / zoom);
+
+                // Projeção de perspectiva matemática (Divisão por Z cria profundidade real)
+                let perspectiveScale = FOV / (FOV - finalZ);
+                
+                node.projX = cx + x1 * perspectiveScale;
+                node.projY = cy + y2 * perspectiveScale;
+                node.projScale = perspectiveScale; // Guarda fator de escala de tamanho/distância
+            }
+
+            // Z-Sorting (Algoritmo do pintor): Desenha o fundo antes do primeiro plano
+            nodes.sort((a, b) => a.projScale - b.projScale);
+
+            // IMPORTANTE: Modo de mesclagem "screen" para acumular luz e criar o super brilho do centro
+            ctx.globalCompositeOperation = 'screen';
+
+            // Passo 2: Renderizar as linhas de rede (Links) 3D
+            for (let link of links) {
+                const s = nodes.find(n => n.id === link.source);
+                const t = nodes.find(n => n.id === link.target);
+
+                if (s.projScale > 0 && t.projScale > 0) {
+                    // Opacidade baseada na proximidade 3D dos nós
+                    let alpha = 0.09 * ((s.projScale + t.projScale) / 2);
+                    let weight = 0.6 * ((s.projScale + t.projScale) / 2);
+
+                    if (hoveredNode && (hoveredNode.id === s.id || hoveredNode.id === t.id)) {
+                        alpha = 0.6;
+                        weight = 1.5;
+                    }
+
+                    ctx.strokeStyle = `rgba(152, 131, 214, ${Math.min(alpha, 0.8)})`;
+                    ctx.lineWidth = weight;
+                    ctx.beginPath();
+                    ctx.moveTo(s.projX, s.projY);
+                    ctx.lineTo(t.projX, t.projY);
+                    ctx.stroke();
+                }
+            }
+
+            // Passo 3: Renderizar estrelas (Glow composto + Core sólido)
+            for (let node of nodes) {
+                if (node.projScale <= 0) continue;
+
+                node.pulse += 0.03;
+                const sizeModifier = 1 + Math.sin(node.pulse) * 0.08;
+                const baseSize = node.radius * node.projScale * sizeModifier;
+
+                let isHovered = hoveredNode && hoveredNode.id === node.id;
+
+                // Raio de iluminação gasosa proporcional à quantidade de links (Concentração central ativa)
+                let glowRadius = baseSize * (node.connections * 0.6 + 3.5);
+                if (isHovered) glowRadius *= 1.6;
+
+                // Gradiente radial super suave para simular a fusão de luz de galáxias
+                let glowGrad = ctx.createRadialGradient(
+                    node.projX, node.projY, baseSize * 0.1,
+                    node.projX, node.projY, glowRadius
+                );
+
+                // Opacidade calculada pelo Z-index projetado (elementos da frente brilham mais)
+                let opacity = isHovered ? 0.7 : Math.min(0.06 * node.projScale * (node.connections * 0.35), 0.4);
+
+                glowGrad.addColorStop(0, `rgba(${node.color}, ${opacity})`);
+                glowGrad.addColorStop(0.2, `rgba(${node.color}, ${opacity * 0.5})`);
+                glowGrad.addColorStop(0.6, `rgba(${node.color}, ${opacity * 0.12})`);
+                glowGrad.addColorStop(1, `rgba(${node.color}, 0)`);
+
+                ctx.fillStyle = glowGrad;
+                ctx.beginPath();
+                ctx.arc(node.projX, node.projY, glowRadius, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Core central de alta intensidade (Ponto central branco/brilhante)
+                ctx.fillStyle = isHovered ? "#ffffff" : `rgba(${node.color}, ${Math.min(0.5 * node.projScale, 1.0)})`;
+                ctx.beginPath();
+                ctx.arc(node.projX, node.projY, Math.max(baseSize * 0.5, 0.8), 0, Math.PI * 2);
+                ctx.fill();
+
+                // Passo 4: Textos flutuantes acompanhando o espaço 3D
+                if (node.label) {
+                    // Só renderiza o texto se o nó estiver visível ou sob hover
+                    if (node.projScale > 0.65 || isHovered) {
+                        let textAlpha = isHovered ? 1.0 : Math.min((node.projScale - 0.6) * 2, 0.85);
+
+                        ctx.fillStyle = isHovered ? "#ffffff" : `rgba(225, 218, 247, ${textAlpha})`;
+                        ctx.font = `${isHovered ? '600' : '400'} ${Math.max(11, 10.5 * node.projScale)}px -apple-system, sans-serif`;
+                        ctx.textAlign = "center";
+                        ctx.textBaseline = "top";
+
+                        // Sombra preta dura para ler o texto mesmo em cima de malhas densas de linhas
+                        ctx.shadowColor = "#06020f";
+                        ctx.shadowBlur = 4;
+                        ctx.fillText(node.label, node.projX, node.projY + baseSize + 6);
+                        ctx.shadowBlur = 0; // Reset
+                    }
+                }
+            }
+
+            // Restaura o modo normal
+            ctx.globalCompositeOperation = 'source-over';
+
+            requestAnimationFrame(render);
+        }
+
+        // Boot
+        initGalaxy();
+        render();
+    </script>
+</body>
+</html>
