@@ -59,13 +59,21 @@ function layout(nodes) {
       ...files.filter(f => f.group === d).map(f => ({ n: f, r: Math.max(2.6, Math.min(9, 2 + 1.6 * Math.log10(1 + (f.size || 0) / 1024))) })),
     ];
     let rad = R_FILES0, i = 0;
-    while (i < items.length && rad < R_ROUT - 40) {
-      const cap = Math.max(1, Math.floor((span * rad) / 22));
+    // shrink spacing so every item fits inside the band; min factor keeps dots legible
+    let sA = 22, sR = 24;
+    let est = 0;
+    for (let r = R_FILES0; r < R_ROUT - 40; r += sR) est += Math.max(1, Math.floor((span * r) / sA));
+    if (items.length > est && est > 0) {
+      const f = Math.max(0.35, Math.sqrt(est / items.length));
+      sA *= f; sR *= f;
+    }
+    while (i < items.length) {   // no radius ceiling — every item gets placed
+      const cap = Math.max(1, Math.floor((span * rad) / sA));
       for (let k = 0; k < cap && i < items.length; k++, i++) {
         const it = items[i];
-        on(it.n, a0 + ((k + 0.5) / cap) * span, rad + (hash(it.n.id) - 0.5) * 8, it.r, color);
+        on(it.n, a0 + ((k + 0.5) / cap) * span, rad + (hash(it.n.id) - 0.5) * 8, Math.min(it.r, sR * 0.45), color);
       }
-      rad += 24;
+      rad += sR;
     }
     a0 += span + GAP;
   }
