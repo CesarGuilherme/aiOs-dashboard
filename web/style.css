@@ -511,3 +511,11 @@ body.hud-theme {
 .rings-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
 .rings-row input[type="range"] { flex: 1; }
 .rings-detail { border-top: 1px solid var(--border); padding-top: 10px; font-size: 12px; min-height: 44px; }
+.rings-results { max-height: 320px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); }
+.rings-result { display: flex; align-items: center; gap: 8px; padding: 6px 8px; cursor: pointer; font-size: 12px; }
+.rings-result:hover { background: var(--panel-2, rgba(255,255,255,0.05)); }
+.rings-result .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.rings-result .rn { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rings-result .rp { color: var(--muted); font-size: 10px; margin-left: auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 45%; }
+.rings-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.rings-actions button { font-size: 11px; }

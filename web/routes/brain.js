@@ -7,7 +7,7 @@ const TYPE_CLASS = { user: 'opus', feedback: 'haiku', project: 'sonnet', referen
 export default async function (root) {
   const [brain, workspace] = await Promise.all([
     api('/api/brain'),
-    api('/api/workspace').catch(() => ({ applications: [], routines: [], skills: [] })),
+    api('/api/workspace').catch(() => ({ applications: [], routines: [], skills: [], files: [] })),
   ]);
   const allEntries = brain.projects.flatMap(p =>
     p.entries.map(e => ({ ...e, projectLabel: p.label, slug: e.id.split('::')[0] })));
@@ -27,11 +27,12 @@ export default async function (root) {
         <div id="rings-canvas"></div>
         <div class="rings-panel">
           <input id="rings-search" type="search" placeholder="Search nodes… ( / )" autocomplete="off">
+          <div id="rings-results" class="rings-results" hidden></div>
           <label class="rings-row"><input id="rings-labels" type="checkbox"> Node names</label>
           <label class="rings-row">Ring spin
             <input id="rings-spin" type="range" min="0" max="1" step="0.05">
           </label>
-          <div id="rings-detail" class="rings-detail muted">hover a node</div>
+          <div id="rings-detail" class="rings-detail muted">click a node</div>
         </div>
       </div>
     </div>
@@ -169,7 +170,7 @@ export default async function (root) {
     ...allEntries.map(e => ({
       id: e.id, name: e.name, layer: 'memory', group: e.projectLabel,
       size: 1 + e.links.length,
-      meta: { project: e.projectLabel, links: e.links.length, mtime: e.mtime, mem: true },
+      meta: { project: e.projectLabel, links: e.links.length, mtime: e.mtime, mem: true, name: e.name },
     })),
     ...workspace.skills.map(s => ({
       id: 'skill::' + s.name, name: s.name, layer: 'skills', group: s.source,
@@ -183,6 +184,11 @@ export default async function (root) {
       id: 'app::' + a.name, name: a.name, layer: 'applications', group: a.scope,
       size: 1, meta: { scope: a.scope },
     })),
+    ...(workspace.files || []).map(f => ({
+      id: 'file::' + f.path, name: f.name, layer: 'file', group: f.dept,
+      size: f.size,
+      meta: { path: f.path, rel: f.rel, dept: f.dept, size: f.size, mtime: f.mtime, ext: f.ext },
+    })),
   ];
   // memory wikilinks + best-effort skill→routine links (routine name contains skill name)
   const links = [
@@ -194,32 +200,73 @@ export default async function (root) {
   ];
 
   const detail = root.querySelector('#rings-detail');
+  const fmtSize = b => b == null ? '' : b > 1048576 ? (b / 1048576).toFixed(1) + ' MB' : b > 1024 ? (b / 1024).toFixed(0) + ' KB' : b + ' B';
+  const fmtAge = iso => { if (!iso) return ''; const d = Math.floor((Date.now() - Date.parse(iso)) / 86400000); return d <= 0 ? 'today' : d + 'd ago'; };
   const showDetail = n => {
-    if (!n) { detail.className = 'rings-detail muted'; detail.textContent = 'hover a node'; return; }
+    if (!n) { detail.className = 'rings-detail muted'; detail.textContent = 'click a node'; return; }
+    const m = n.meta || {};
+    const badges = [m.dept || m.project, n.layer].filter(Boolean)
+      .map(b => `<span class="badge">${fmt.htmlSafe(String(b))}</span>`).join(' ');
+    const linked = (brain.links || []).filter(l => l.source === n.id || l.target === n.id)
+      .map(l => l.source === n.id ? l.target : l.source).slice(0, 8);
     detail.className = 'rings-detail';
     detail.innerHTML = `
       <div class="gi-name">${fmt.htmlSafe(n.name)}</div>
-      <div class="gi-meta">${fmt.htmlSafe(n.layer)}${n.meta.project ? ' · ' + fmt.htmlSafe(n.meta.project) : ''}${n.meta.scope ? ' · ' + fmt.htmlSafe(n.meta.scope) : ''}${n.meta.source ? ' · ' + fmt.htmlSafe(n.meta.source) : ''}${n.meta.links != null ? ` · ${n.meta.links} link${n.meta.links === 1 ? '' : 's'}` : ''}</div>
-      ${n.meta.mtime ? `<div class="gi-meta mono">${fmt.ts(n.meta.mtime)}</div>` : ''}`;
+      <div style="margin:4px 0">${badges}</div>
+      <div class="gi-meta">${[fmtSize(m.size), fmtAge(m.mtime), m.ext].filter(Boolean).join(' · ')}</div>
+      ${m.path || m.rel ? `<div class="gi-meta mono" style="word-break:break-all">${fmt.htmlSafe(m.rel || m.path)}</div>` : ''}
+      <div class="rings-actions">
+        <button data-fly="${fmt.htmlSafe(n.id)}">Fly to</button>
+        ${m.path ? `<button data-copy-path="${fmt.htmlSafe(m.path)}">Copy path</button>
+        <button data-open="${fmt.htmlSafe(m.path)}">Open on device</button>` : ''}
+      </div>
+      ${linked.length ? `<div class="gi-meta" style="margin-top:6px">CONNECTIONS</div>
+        ${linked.map(id => `<div class="gi-meta">• ${fmt.htmlSafe(String(id).split('::').pop())}</div>`).join('')}` : ''}`;
+    detail.querySelector('[data-fly]')?.addEventListener('click', () => rings.flyTo(n.id));
+    detail.querySelector('[data-copy-path]')?.addEventListener('click', async ev => {
+      await navigator.clipboard.writeText(ev.target.dataset.copyPath); ev.target.textContent = 'copied ✓';
+    });
+    detail.querySelector('[data-open]')?.addEventListener('click', () =>
+      fetch('/api/open', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: n.meta.path }) }));
   };
   const rings = ringsCanvas(root.querySelector('#rings-canvas'), {
     nodes, links,
-    onNodeHover: showDetail,
+    onNodeHover: () => {},          // hover shows the on-canvas label only
     onNodeClick: n => {
-      if (!n.meta.mem) return;
-      const elx = root.querySelector(`details[data-mem="${CSS.escape(n.id)}"]`);
-      if (elx) { elx.open = true; elx.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+      showDetail(n);
+      if (n.meta?.mem) {
+        const elx = root.querySelector(`details[data-mem="${CSS.escape(n.id)}"]`);
+        if (elx) { elx.open = true; elx.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+      }
     },
   });
 
-  // panel wiring
+  // search dropdown
   const search = root.querySelector('#rings-search');
-  search.addEventListener('input', () => rings.setFilter(search.value.trim() || null));
+  const results = root.querySelector('#rings-results');
+  const renderResults = q => {
+    if (!q) { results.hidden = true; results.innerHTML = ''; return; }
+    const ql = q.toLowerCase();
+    const hits = nodes.filter(n => n.name.toLowerCase().includes(ql)).slice(0, 12);
+    results.hidden = hits.length === 0;
+    results.innerHTML = hits.map(n => `
+      <div class="rings-result" data-id="${fmt.htmlSafe(n.id)}">
+        <span class="dot" style="background:${n.layer === 'skills' ? '#E8944A' : n.layer === 'routines' ? '#D9B944' : n.layer === 'applications' ? '#7FA8E8' : '#B48CFF'}"></span>
+        <span class="rn">${fmt.htmlSafe(n.name)}</span>
+        <span class="rp">${fmt.htmlSafe(n.meta?.rel || n.meta?.project || n.group || '')}</span>
+      </div>`).join('');
+    results.querySelectorAll('.rings-result').forEach(row =>
+      row.addEventListener('click', () => {
+        const n = nodes.find(x => x.id === row.dataset.id);
+        results.hidden = true;
+        if (n) { rings.flyTo(n.id); showDetail(n); }
+      }));
+  };
+  search.addEventListener('input', () => { rings.setFilter(search.value.trim() || null); renderResults(search.value.trim()); });
   search.addEventListener('keydown', e => {
-    if (e.key !== 'Enter') return;
-    const q = search.value.trim().toLowerCase();
-    const best = q && nodes.find(n => n.name.toLowerCase().includes(q));
-    if (best) rings.focus(best.id);
+    if (e.key === 'Escape') { results.hidden = true; search.blur(); }
+    if (e.key === 'Enter') results.querySelector('.rings-result')?.click();
   });
   const onSlash = e => {
     if (e.key === '/' && document.activeElement !== search && !/INPUT|TEXTAREA/.test(document.activeElement?.tagName)) {
@@ -227,6 +274,7 @@ export default async function (root) {
     }
   };
   document.addEventListener('keydown', onSlash);
+  search.placeholder = `Search ${nodes.length.toLocaleString()} nodes… ( / )`;
   const labelsBox = root.querySelector('#rings-labels');
   labelsBox.checked = rings.labels;
   labelsBox.addEventListener('change', () => rings.setLabels(labelsBox.checked));
