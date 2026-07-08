@@ -1,12 +1,14 @@
 import { api, fmt } from '/web/app.js';
-import { forceGraph, lineChart, stackedBarChart } from '/web/charts.js';
-import { galaxyCanvas } from '/web/galaxy.js';
+import { lineChart, stackedBarChart } from '/web/charts.js';
+import { ringsCanvas } from '/web/rings.js';
 
 const TYPE_CLASS = { user: 'opus', feedback: 'haiku', project: 'sonnet', reference: '', learning: 'haiku' };
 
 export default async function (root) {
-  let galaxyTeardown = null;   // returned to the router so the galaxy loop stops on navigate
-  const brain = await api('/api/brain');
+  const [brain, workspace] = await Promise.all([
+    api('/api/brain'),
+    api('/api/workspace').catch(() => ({ applications: [], routines: [], skills: [] })),
+  ]);
   const allEntries = brain.projects.flatMap(p =>
     p.entries.map(e => ({ ...e, projectLabel: p.label, slug: e.id.split('::')[0] })));
   const roi = brain.roi || {};
@@ -19,7 +21,22 @@ export default async function (root) {
     ? roi.cache_trend[roi.cache_trend.length - 1].hit_rate : null;
 
   root.innerHTML = `
-    <div class="card">
+    <div class="card rings-card">
+      <h2>Second brain</h2>
+      <div class="rings-wrap">
+        <div id="rings-canvas"></div>
+        <div class="rings-panel">
+          <input id="rings-search" type="search" placeholder="Search nodes… ( / )" autocomplete="off">
+          <label class="rings-row"><input id="rings-labels" type="checkbox"> Node names</label>
+          <label class="rings-row">Ring spin
+            <input id="rings-spin" type="range" min="0" max="1" step="0.05">
+          </label>
+          <div id="rings-detail" class="rings-detail muted">hover a node</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
       <h2>Memory ROI</h2>
       <p class="muted" style="margin:-8px 0 16px">Does the auto-learning brain pay for itself? <b>Saved</b> = tokens spent re-reading files a memory already covers (last 30d — an avoided-re-read <em>estimate</em>). <b>Cost</b> = real tokens the background extraction passes burned. <b>Net</b> is the difference.</p>
       <div class="row cols-4">
@@ -92,33 +109,6 @@ export default async function (root) {
         </div>`).join('')}
     </div>` : ''}
 
-    <div class="card" style="margin-top:16px">
-      <h2>Memory galaxy</h2>
-      ${allEntries.length === 0
-        ? '<p class="muted">No memories yet. Ask Claude Code to "save a memory" in any project and it shows up here live.</p>'
-        : `<div class="graph-head">
-             <p class="muted" style="margin:0">${allEntries.length} stars across ${brain.projects.length} projects · ${brain.links.filter(l => l.kind === 'explicit').length} solid [[links]] · ${brain.links.filter(l => l.kind === 'soft').length} faint auto-links. Brightest = freshest. Drag to orbit, scroll to zoom, click a star to open it, double-click to pause the flight.</p>
-             <div class="range-tabs" id="brain-view">
-               <button data-view="3d">3D</button>
-               <button data-view="2d">2D</button>
-             </div>
-           </div>
-            <div class="galaxy">
-              <div id="brain-graph"></div>
-              <div class="galaxy-hud" id="galaxy-hud">
-                <div class="gx-title"><span class="gx-orbit">☊</span> Memory Galaxy</div>
-                <div class="gx-count">${allEntries.length} stars · ${brain.links.length} links</div>
-                <div class="gx-hint">drag to orbit · scroll to zoom · click a star</div>
-                <div class="gx-legend">brighter = more connected / recently touched</div>
-              </div>
-              <div class="galaxy-stamp" id="galaxy-stamp">
-                <div class="gs-date">${fmt.htmlSafe(new Date().toISOString().slice(0, 10))}</div>
-                <div class="gs-meta">Memory OS · ${brain.links.length} links</div>
-              </div>
-              <div class="galaxy-info" id="galaxy-info" hidden></div>
-            </div>`}
-    </div>
-
     ${brain.projects.map(p => `
       <div class="card" style="margin-top:16px">
         <h2>${fmt.htmlSafe(p.label)} <span class="muted" style="font-weight:400;font-size:12px">· ${p.entries.length} memories${p.learnings.length ? ` · ${p.learnings.length} learnings` : ''}</span></h2>
@@ -174,69 +164,75 @@ export default async function (root) {
     });
   }
 
-  if (allEntries.length) {
-    const categories = brain.projects.map(p => p.label);
-    // Galaxy brightness ∝ recency: newest memory burns brightest, oldest dimmest.
-    // mtime is an ISO string, so parse to epoch ms before any arithmetic.
-    const epoch = e => { const t = Date.parse(e.mtime); return Number.isNaN(t) ? null : t; };
-    const times = allEntries.map(epoch).filter(t => t != null);
-    const minT = times.length ? Math.min(...times) : 0;
-    const maxT = times.length ? Math.max(...times) : 1;
-    const span = Math.max(1, maxT - minT);
-    const nodes = allEntries.map(e => ({
-      id: e.id, name: e.name, desc: e.description,
-      category: categories.indexOf(e.projectLabel),
-      symbolSize: 12 + 4 * e.links.length,   // ECharts 2D sizing
-      val: 1 + e.links.length,               // 3D sizing
-      recency: ((epoch(e) ?? minT) - minT) / span,   // 0 (oldest) … 1 (freshest)
-      mtime: e.mtime, project: e.projectLabel, links: e.links.length,
-    }));
-    const links = brain.links;
-    const el = document.getElementById('brain-graph');
-    const hud = document.getElementById('galaxy-hud');
-    const info = document.getElementById('galaxy-info');
-    const stamp = document.getElementById('galaxy-stamp');
-    const onNodeClick = d => {
-      const node = root.querySelector(`details[data-mem="${CSS.escape(d.id)}"]`);
-      if (node) { node.open = true; node.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
-    };
-    const onNodeHover = n => {
-      if (!info) return;
-      if (!n) { info.hidden = true; return; }
-      info.hidden = false;
-      info.innerHTML = `
-        <div class="gi-name">${fmt.htmlSafe(n.name)}</div>
-        <div class="gi-meta">${fmt.htmlSafe(n.project || '')} · ${n.links || 0} link${n.links === 1 ? '' : 's'}</div>
-        ${n.mtime ? `<div class="gi-meta mono">${fmt.ts(n.mtime)}</div>` : ''}`;
-    };
+  // --- rings: memory nodes from /api/brain + agentic layers from /api/workspace
+  const nodes = [
+    ...allEntries.map(e => ({
+      id: e.id, name: e.name, layer: 'memory', group: e.projectLabel,
+      size: 1 + e.links.length,
+      meta: { project: e.projectLabel, links: e.links.length, mtime: e.mtime, mem: true },
+    })),
+    ...workspace.skills.map(s => ({
+      id: 'skill::' + s.name, name: s.name, layer: 'skills', group: s.source,
+      size: 1, meta: { source: s.source },
+    })),
+    ...workspace.routines.map(r => ({
+      id: 'routine::' + r.name, name: r.name, layer: 'routines', group: '',
+      size: 1, meta: {},
+    })),
+    ...workspace.applications.map(a => ({
+      id: 'app::' + a.name, name: a.name, layer: 'applications', group: a.scope,
+      size: 1, meta: { scope: a.scope },
+    })),
+  ];
+  // memory wikilinks + best-effort skill→routine links (routine name contains skill name)
+  const links = [
+    ...brain.links,
+    ...workspace.routines.flatMap(r =>
+      workspace.skills
+        .filter(s => r.name.toLowerCase().includes(s.name.toLowerCase()))
+        .map(s => ({ source: 'skill::' + s.name, target: 'routine::' + r.name }))),
+  ];
 
-    let chart = null, view = null;
-    const teardown = () => {
-      if (!chart) return;
-      if (view === '2d') chart.dispose();   // ECharts
-      else chart.__teardown?.();            // galaxy canvas
-      el.innerHTML = '';
-      chart = null;
-    };
-    galaxyTeardown = teardown;
-    const mount = next => {
-      if (next === view) return;
-      teardown();
-      view = next;
-      chart = next === '3d'
-        ? galaxyCanvas(el, { nodes, links, onNodeClick, onNodeHover })
-        : forceGraph(el, { nodes, links, categories, onNodeClick });
-      // HUD belongs to the galaxy; hide it (and any stale info card) in 2D.
-      if (hud) hud.style.display = next === '3d' ? '' : 'none';
-      if (stamp) stamp.style.display = next === '3d' ? '' : 'none';
-      if (info && next !== '3d') info.hidden = true;
-      root.querySelectorAll('#brain-view button').forEach(b =>
-        b.classList.toggle('active', b.dataset.view === next));
-    };
-    root.querySelectorAll('#brain-view button').forEach(b =>
-      b.addEventListener('click', () => mount(b.dataset.view)));
-    mount('3d');   // default to the galaxy view
-  }
+  const detail = root.querySelector('#rings-detail');
+  const showDetail = n => {
+    if (!n) { detail.className = 'rings-detail muted'; detail.textContent = 'hover a node'; return; }
+    detail.className = 'rings-detail';
+    detail.innerHTML = `
+      <div class="gi-name">${fmt.htmlSafe(n.name)}</div>
+      <div class="gi-meta">${fmt.htmlSafe(n.layer)}${n.meta.project ? ' · ' + fmt.htmlSafe(n.meta.project) : ''}${n.meta.scope ? ' · ' + fmt.htmlSafe(n.meta.scope) : ''}${n.meta.source ? ' · ' + fmt.htmlSafe(n.meta.source) : ''}${n.meta.links != null ? ` · ${n.meta.links} link${n.meta.links === 1 ? '' : 's'}` : ''}</div>
+      ${n.meta.mtime ? `<div class="gi-meta mono">${fmt.ts(n.meta.mtime)}</div>` : ''}`;
+  };
+  const rings = ringsCanvas(root.querySelector('#rings-canvas'), {
+    nodes, links,
+    onNodeHover: showDetail,
+    onNodeClick: n => {
+      if (!n.meta.mem) return;
+      const elx = root.querySelector(`details[data-mem="${CSS.escape(n.id)}"]`);
+      if (elx) { elx.open = true; elx.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+    },
+  });
+
+  // panel wiring
+  const search = root.querySelector('#rings-search');
+  search.addEventListener('input', () => rings.setFilter(search.value.trim() || null));
+  search.addEventListener('keydown', e => {
+    if (e.key !== 'Enter') return;
+    const q = search.value.trim().toLowerCase();
+    const best = q && nodes.find(n => n.name.toLowerCase().includes(q));
+    if (best) rings.focus(best.id);
+  });
+  const onSlash = e => {
+    if (e.key === '/' && document.activeElement !== search && !/INPUT|TEXTAREA/.test(document.activeElement?.tagName)) {
+      e.preventDefault(); search.focus();
+    }
+  };
+  document.addEventListener('keydown', onSlash);
+  const labelsBox = root.querySelector('#rings-labels');
+  labelsBox.checked = rings.labels;
+  labelsBox.addEventListener('change', () => rings.setLabels(labelsBox.checked));
+  const spinSlider = root.querySelector('#rings-spin');
+  spinSlider.value = rings.spin;
+  spinSlider.addEventListener('input', () => rings.setSpin(spinSlider.value));
 
   root.querySelectorAll('button[data-copy]').forEach(b => {
     b.addEventListener('click', async () => {
@@ -279,5 +275,5 @@ export default async function (root) {
     });
   });
 
-  return () => galaxyTeardown?.();
+  return () => { rings.__teardown(); document.removeEventListener('keydown', onSlash); };
 }

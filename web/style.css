@@ -577,3 +577,13 @@ body.hud-theme {
 .hud-live {
   color: var(--hud-live, #27e0ff);
 }
+
+/* Second-brain rings */
+.rings-card { padding-bottom: 12px; }
+.rings-wrap { position: relative; height: 85vh; min-height: 480px; background: radial-gradient(ellipse at center, #0d0b14 0%, #070609 80%); border-radius: 10px; overflow: hidden; }
+.rings-wrap #rings-canvas { position: absolute; inset: 0; }
+.rings-panel { position: absolute; top: 14px; right: 14px; width: 230px; background: var(--panel, rgba(16,14,24,0.92)); border: 1px solid var(--border); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 10px; backdrop-filter: blur(6px); }
+.rings-panel input[type="search"] { width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font-size: 12px; }
+.rings-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+.rings-row input[type="range"] { flex: 1; }
+.rings-detail { border-top: 1px solid var(--border); padding-top: 10px; font-size: 12px; min-height: 44px; }
