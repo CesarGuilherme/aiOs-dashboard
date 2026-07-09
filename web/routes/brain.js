@@ -165,6 +165,44 @@ export default async function (root) {
     });
   }
 
+  // --- fold files into folder-orb nodes: dept → top-level dir → subdir, so the
+  // canvas shows stacked orbs with counts that explode on click (rings.js).
+  const buildFolders = files => {
+    const byDept = new Map();
+    for (const f of files) {
+      if (!byDept.has(f.dept)) byDept.set(f.dept, new Map());
+      const top = byDept.get(f.dept);
+      const seg = f.rel.includes('/') ? f.rel.split('/')[0] : '(root)';
+      if (!top.has(seg)) top.set(seg, []);
+      top.get(seg).push(f);
+    }
+    const out = [];
+    for (const [dept, top] of byDept) {
+      for (const [seg, fs] of top) {
+        const base = fs[0].path.slice(0, fs[0].path.length - fs[0].rel.length);
+        const sub = new Map();
+        for (const f of fs) {
+          const parts = f.rel.split('/');
+          const k = parts.length > 2 ? parts[1] : '(files)';
+          if (!sub.has(k)) sub.set(k, []);
+          sub.get(k).push(f);
+        }
+        out.push({
+          id: `folder::${dept}/${seg}`, name: seg, layer: 'folder', group: dept,
+          count: fs.length,
+          meta: { dept, count: fs.length, path: seg === '(root)' ? base.replace(/\/$/, '') : base + seg },
+          kids: [...sub.entries()].filter(([k]) => k !== '(files)').map(([k, kfs]) => ({
+            id: `folder::${dept}/${seg}/${k}`, name: k, layer: 'folder', group: dept, count: kfs.length,
+            meta: { dept, count: kfs.length, path: `${base}${seg}/${k}` },
+            kids: [], leaves: kfs,
+          })),
+          leaves: sub.get('(files)') || [],
+        });
+      }
+    }
+    return out;
+  };
+
   // --- rings: memory nodes from /api/brain + agentic layers from /api/workspace
   const nodes = [
     ...allEntries.map(e => ({
@@ -184,11 +222,7 @@ export default async function (root) {
       id: 'app::' + a.name, name: a.name, layer: 'applications', group: a.scope,
       size: 1, meta: { scope: a.scope },
     })),
-    ...(workspace.files || []).map(f => ({
-      id: 'file::' + f.path, name: f.name, layer: 'file', group: f.dept,
-      size: f.size,
-      meta: { path: f.path, rel: f.rel, dept: f.dept, size: f.size, mtime: f.mtime, ext: f.ext },
-    })),
+    ...buildFolders(workspace.files || []),
   ];
   // memory wikilinks + best-effort skill→routine links (routine name contains skill name)
   const links = [
@@ -213,7 +247,7 @@ export default async function (root) {
     detail.innerHTML = `
       <div class="gi-name">${fmt.htmlSafe(n.name)}</div>
       <div style="margin:4px 0">${badges}</div>
-      <div class="gi-meta">${[fmtSize(m.size), fmtAge(m.mtime), fmt.htmlSafe(m.ext || '')].filter(Boolean).join(' · ')}</div>
+      <div class="gi-meta">${[m.count && m.count + ' files', fmtSize(m.size), fmtAge(m.mtime), fmt.htmlSafe(m.ext || '')].filter(Boolean).join(' · ')}</div>
       ${m.path || m.rel ? `<div class="gi-meta mono" style="word-break:break-all">${fmt.htmlSafe(m.rel || m.path)}</div>` : ''}
       <div class="rings-actions">
         <button data-fly="${fmt.htmlSafe(n.id)}">Fly to</button>
@@ -245,22 +279,36 @@ export default async function (root) {
   // search dropdown
   const search = root.querySelector('#rings-search');
   const results = root.querySelector('#rings-results');
+  // search index: visible nodes + every scanned file (a file hit flies to and
+  // explodes its top-level folder orb)
+  const searchIndex = [
+    ...nodes.map(n => ({ name: n.name, sub: n.meta?.project || n.group || n.layer, target: n.id, node: n, color: n.layer === 'skills' ? '#E8944A' : n.layer === 'routines' ? '#D9B944' : n.layer === 'applications' ? '#8FB4E3' : '#B48CFF' })),
+    ...(workspace.files || []).map(f => ({
+      name: f.name, sub: f.dept + '/' + f.rel,
+      target: `folder::${f.dept}/${f.rel.includes('/') ? f.rel.split('/')[0] : '(root)'}`,
+      node: { id: 'file::' + f.path, name: f.name, layer: 'file', meta: { ...f } },
+      color: '#C9B8F0',
+    })),
+  ];
   const renderResults = q => {
     if (!q) { results.hidden = true; results.innerHTML = ''; return; }
     const ql = q.toLowerCase();
-    const hits = nodes.filter(n => n.name.toLowerCase().includes(ql)).slice(0, 12);
+    const hits = searchIndex.filter(e => e.name.toLowerCase().includes(ql)).slice(0, 12);
     results.hidden = hits.length === 0;
-    results.innerHTML = hits.map(n => `
-      <div class="rings-result" data-id="${fmt.htmlSafe(n.id)}">
-        <span class="dot" style="background:${n.layer === 'skills' ? '#E8944A' : n.layer === 'routines' ? '#D9B944' : n.layer === 'applications' ? '#7FA8E8' : '#B48CFF'}"></span>
-        <span class="rn">${fmt.htmlSafe(n.name)}</span>
-        <span class="rp">${fmt.htmlSafe(n.meta?.rel || n.meta?.project || n.group || '')}</span>
+    results.innerHTML = hits.map((e, i) => `
+      <div class="rings-result" data-i="${i}">
+        <span class="dot" style="background:${e.color}"></span>
+        <span class="rn">${fmt.htmlSafe(e.name)}</span>
+        <span class="rp">${fmt.htmlSafe(e.sub)}</span>
       </div>`).join('');
     results.querySelectorAll('.rings-result').forEach(row =>
       row.addEventListener('click', () => {
-        const n = nodes.find(x => x.id === row.dataset.id);
+        const e = hits[+row.dataset.i];
         results.hidden = true;
-        if (n) { rings.flyTo(n.id); showDetail(n); }
+        if (!e) return;
+        rings.expand?.(e.target);
+        rings.flyTo(e.target);
+        showDetail(e.node);
       }));
   };
   search.addEventListener('input', () => { rings.setFilter(search.value.trim() || null); renderResults(search.value.trim()); });
@@ -274,7 +322,7 @@ export default async function (root) {
     }
   };
   document.addEventListener('keydown', onSlash);
-  search.placeholder = `Search ${nodes.length.toLocaleString()} nodes… ( / )`;
+  search.placeholder = `Search ${searchIndex.length.toLocaleString()} files… ( / )`;
   const labelsBox = root.querySelector('#rings-labels');
   labelsBox.checked = rings.labels;
   labelsBox.addEventListener('change', () => rings.setLabels(labelsBox.checked));
