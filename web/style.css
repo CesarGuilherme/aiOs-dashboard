@@ -30,12 +30,16 @@ a:hover { text-decoration: underline; }
 
 /* topbar */
 header.topbar {
-  display: flex; align-items: center; gap: 16px;
-  padding: 10px 20px;
+  display: flex;
   border-bottom: 1px solid var(--border);
   background: linear-gradient(180deg, var(--panel) 0%, var(--bg) 100%);
   position: sticky; top: 0; z-index: 10;
   backdrop-filter: saturate(180%) blur(8px);
+}
+.topbar-inner {
+  display: flex; align-items: center; gap: 16px;
+  width: 100%; max-width: 1400px; margin: 0 auto;
+  padding: 10px 20px;
 }
 .topbar .brand {
   font-weight: 600; letter-spacing: -0.01em; font-size: 14px;
@@ -46,7 +50,7 @@ header.topbar {
   background: var(--accent); border-radius: 2px;
   box-shadow: 0 0 12px var(--accent);
 }
-.topbar nav { display: flex; gap: 2px; margin-left: 12px; }
+.topbar nav { display: flex; flex-wrap: wrap; gap: 2px; margin-left: 12px; }
 .topbar nav a {
   padding: 5px 10px; border-radius: 6px;
   color: var(--muted); font-size: 13px; font-weight: 500;
@@ -68,10 +72,13 @@ main#app { padding: 24px 20px; max-width: 1400px; margin: 0 auto; }
 
 /* card */
 .card {
-  background: var(--panel);
+  background: linear-gradient(160deg, var(--panel) 0%, var(--panel-2) 100%);
   border: 1px solid var(--border);
+  border-left: 2.5px solid var(--accent);
   border-radius: 10px;
   padding: 18px;
+  backdrop-filter: blur(6px);
+  box-shadow: 0 0 0 1px rgba(74, 158, 255, 0.04), 0 8px 24px -12px rgba(74, 158, 255, 0.18);
 }
 .card h2 { margin: 0 0 14px; font-size: 16px; font-weight: 600; letter-spacing: -0.01em; }
 .card h3 { margin: 0 0 10px; font-size: 13px; font-weight: 600; color: var(--text); }
@@ -103,8 +110,9 @@ main#app { padding: 24px 20px; max-width: 1400px; margin: 0 auto; }
   font-variant-numeric: tabular-nums; letter-spacing: -0.03em;
   margin-top: 6px; line-height: 1.1;
   white-space: nowrap;
+  text-shadow: 0 0 16px rgba(74, 158, 255, 0.25);
 }
-.kpi.cost .value { color: var(--good); }
+.kpi.cost .value { color: var(--good); text-shadow: 0 0 16px rgba(63, 182, 139, 0.3); }
 /* compact tokens like "4.1B" are short — give them a touch more room */
 .kpi .value.big { font-size: 24px; }
 .kpi .delta { font-family: var(--mono); font-size: 12px; margin-top: 4px; }

@@ -48,13 +48,15 @@ function buildTopbar() {
   const wrap = document.createElement('header');
   wrap.className = 'topbar';
   wrap.innerHTML = `
-    <div class="brand font-hud">AI-DASHBOARD</div>
-    <nav>
-      ${Object.keys(ROUTES).map(p => `<a href="#${p}" data-route="${p}">${p.slice(1)}</a>`).join('')}
-    </nav>
-    <div class="spacer"></div>
-    <span class="pill" id="plan-pill">api</span>
-    <span class="pill muted" title="Cmd/Ctrl+B blurs sensitive text">⌘B blur</span>
+    <div class="topbar-inner">
+      <div class="brand font-hud">AI-DASHBOARD</div>
+      <nav>
+        ${Object.keys(ROUTES).map(p => `<a href="#${p}" data-route="${p}">${p.slice(1)}</a>`).join('')}
+      </nav>
+      <div class="spacer"></div>
+      <span class="pill" id="plan-pill">api</span>
+      <span class="pill muted" title="Cmd/Ctrl+B blurs sensitive text">⌘B blur</span>
+    </div>
   `;
   document.body.prepend(wrap);
 }
