@@ -7,7 +7,6 @@
 // Everything is drawn fresh each frame (≈50 nodes) — no baked bitmap, so
 // labels stay upright in screen space and there is no bitmap boundary.
 
-const MEMORY_COLOR = [180, 140, 255];   // base RGB, hue-jittered per node
 const WORLD = 480;
 const FR_ITERS = 300;
 const PULSE_MS = 900;
@@ -37,6 +36,8 @@ export function ringsCanvas(el, { nodes, links, onNodeClick, onNodeHover }) {
     });
     byId = new Map(all.map(n => [n.id, n]));
     edges = linksIn.map(l => [byId.get(l.source), byId.get(l.target)]).filter(([a, b]) => a && b);
+    const groups = [...new Set(all.map(n => n.group))].sort();
+    groupHue = new Map(groups.map((g, i) => [g, (i / Math.max(1, groups.length)) * 360]));
 
     adj = new Map();
     for (const [a, b] of edges) {
@@ -89,9 +90,15 @@ export function ringsCanvas(el, { nodes, links, onNodeClick, onNodeHover }) {
     }
   }
 
+  // rainbow hue per project (group), evenly spread; small per-node jitter
+  let groupHue = new Map();
+  function hsl2rgb(h, s, l) {
+    const f = k => { const kk = (k + h / 30) % 12; return l - s * Math.min(l, 1 - l) * Math.max(-1, Math.min(kk - 3, 9 - kk, 1)); };
+    return [f(0) * 255, f(8) * 255, f(4) * 255].map(Math.round);
+  }
   function nodeRGB(n) {
-    const jitter = (hash(n.id + '.hue') - 0.5) * 50;
-    return MEMORY_COLOR.map((v, i) => Math.max(0, Math.min(255, v + jitter * (i === 2 ? -0.4 : 1))));
+    const hue = (groupHue.get(n.group) ?? 270) + (hash(n.id + '.hue') - 0.5) * 18;
+    return hsl2rgb((hue + 360) % 360, 0.72, 0.68);
   }
 
   // ---- state ----------------------------------------------------------------
@@ -106,10 +113,10 @@ export function ringsCanvas(el, { nodes, links, onNodeClick, onNodeHover }) {
 
   const W = () => el.clientWidth, H = () => el.clientHeight;
 
-  function rotateAll() {
-    const cosX = Math.cos(rotX * spin), sinX = Math.sin(rotX * spin);
-    const cosY = Math.cos(rotY * spin), sinY = Math.sin(rotY * spin);
-    const cosZ = Math.cos(rotZ * spin), sinZ = Math.sin(rotZ * spin);
+  function rotateAll(ax, ay, az) {
+    const cosX = Math.cos(ax), sinX = Math.sin(ax);
+    const cosY = Math.cos(ay), sinY = Math.sin(ay);
+    const cosZ = Math.cos(az), sinZ = Math.sin(az);
     for (const n of all) {
       const y = n.y3d * cosX - n.z3d * sinX;
       const z = n.z3d * cosX + n.y3d * sinX;
@@ -123,9 +130,9 @@ export function ringsCanvas(el, { nodes, links, onNodeClick, onNodeHover }) {
 
   function updateSpin(now) {
     if (now > nextSpinShift) {
-      tRotX = (Math.random() - 0.5) * 0.005;
-      tRotY = (Math.random() - 0.5) * 0.005;
-      tRotZ = (Math.random() - 0.5) * 0.0025;
+      tRotX = (Math.random() - 0.5) * 0.011;
+      tRotY = (Math.random() - 0.5) * 0.011;
+      tRotZ = (Math.random() - 0.5) * 0.005;
       nextSpinShift = now + 1500 + Math.random() * 2600;
     }
     rotX += (tRotX - rotX) * 0.018;
@@ -330,7 +337,7 @@ export function ringsCanvas(el, { nodes, links, onNodeClick, onNodeHover }) {
   function tick(now) {
     if (dead) return;
     updateSpin(now);
-    if (spin > 0) rotateAll();
+    if (spin > 0) rotateAll(rotX * spin, rotY * spin, rotZ * spin);
     if (fly) {
       fly.t = Math.min(1, fly.t + 1 / 36);
       const e = 1 - (1 - fly.t) ** 3;
@@ -350,21 +357,27 @@ export function ringsCanvas(el, { nodes, links, onNodeClick, onNodeHover }) {
     raf = requestAnimationFrame(tick);
   }
 
-  let dragging = false, moved = false, sx = 0, sy = 0;
-  const onDown = e => { dragging = true; moved = false; sx = e.clientX; sy = e.clientY; canvas.style.cursor = 'grabbing'; };
+  let dragging = false, rotating = false, moved = false, sx = 0, sy = 0;
+  const onDown = e => {
+    dragging = true; rotating = e.ctrlKey || e.metaKey;
+    moved = false; sx = e.clientX; sy = e.clientY;
+    canvas.style.cursor = rotating ? 'move' : 'grabbing';
+  };
   const onMove = e => {
     const rect = canvas.getBoundingClientRect();
     if (dragging) {
-      panX += e.clientX - sx; panY += e.clientY - sy;
-      if (Math.abs(e.clientX - sx) + Math.abs(e.clientY - sy) > 3) moved = true;
+      const dx = e.clientX - sx, dy = e.clientY - sy;
+      if (rotating) rotateAll(dy * 0.005, dx * 0.005, 0);   // ctrl/cmd + drag = orbit
+      else { panX += dx; panY += dy; }
+      if (Math.abs(dx) + Math.abs(dy) > 3) moved = true;
       sx = e.clientX; sy = e.clientY; return;
     }
     const hcur = hit(e.clientX - rect.left, e.clientY - rect.top);
     if (hcur !== hovered) { hovered = hcur; canvas.style.cursor = hcur ? 'pointer' : 'grab'; onNodeHover?.(hcur); }
   };
   const onUp = () => {
-    if (dragging && !moved && hovered) onNodeClick?.(hovered);
-    dragging = false; canvas.style.cursor = hovered ? 'pointer' : 'grab';
+    if (dragging && !moved && !rotating && hovered) onNodeClick?.(hovered);
+    dragging = false; rotating = false; canvas.style.cursor = hovered ? 'pointer' : 'grab';
   };
   const onWheel = e => { e.preventDefault(); zoom = Math.min(12, Math.max(0.3, zoom * (e.deltaY < 0 ? 1.1 : 0.9))); };
   canvas.addEventListener('mousedown', onDown);
