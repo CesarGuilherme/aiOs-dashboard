@@ -153,9 +153,9 @@ export default async function (root) {
   stackedBarChart(document.getElementById('ch-daily-billable'), {
     categories: daily.map(d => d.day),
     series: [
-      { name: 'input',        values: daily.map(d => d.input_tokens),        color: '#4A9EFF' },
-      { name: 'output',       values: daily.map(d => d.output_tokens),       color: '#7C5CFF' },
-      { name: 'cache create', values: daily.map(d => d.cache_create_tokens), color: '#E8A23B' },
+      { name: 'input',        values: daily.map(d => d.input_tokens),        color: '#27E0FF' },
+      { name: 'output',       values: daily.map(d => d.output_tokens),       color: '#8B7CFF' },
+      { name: 'cache create', values: daily.map(d => d.cache_create_tokens), color: '#FFB53D' },
     ],
   });
 
@@ -163,7 +163,7 @@ export default async function (root) {
   stackedBarChart(document.getElementById('ch-daily-cache'), {
     categories: daily.map(d => d.day),
     series: [
-      { name: 'cache read', values: daily.map(d => d.cache_read_tokens), color: '#3FB68B' },
+      { name: 'cache read', values: daily.map(d => d.cache_read_tokens), color: '#2FE6B8' },
     ],
   });
 
@@ -184,8 +184,8 @@ export default async function (root) {
       return name.length > 20 ? name.slice(0, 19) + '…' : name;
     }),
     series: [
-      { name: 'input',  values: topProjects.map(p => p.input_tokens  || 0), color: '#4A9EFF' },
-      { name: 'output', values: topProjects.map(p => p.output_tokens || 0), color: '#7C5CFF' },
+      { name: 'input',  values: topProjects.map(p => p.input_tokens  || 0), color: '#27E0FF' },
+      { name: 'output', values: topProjects.map(p => p.output_tokens || 0), color: '#8B7CFF' },
     ],
   });
 
@@ -194,7 +194,7 @@ export default async function (root) {
   barChart(document.getElementById('ch-tools'), {
     categories: topTools.map(t => t.tool_name),
     values: topTools.map(t => t.calls),
-    color: '#7C5CFF',
+    color: '#8B7CFF',
   });
 
   // knowledge card — fetched after first paint so it never delays the overview

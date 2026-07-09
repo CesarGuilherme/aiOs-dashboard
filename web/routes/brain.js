@@ -158,9 +158,9 @@ export default async function (root) {
     stackedBarChart(tlEl, {
       categories: timeline.map(d => d.day.slice(5)),
       series: [
-        { name: 'auto', values: timeline.map(d => d.auto), color: '#3FB68B' },
-        { name: 'you', values: timeline.map(d => d.user), color: '#7C5CFF' },
-        { name: 'learnings', values: timeline.map(d => d.learnings), color: '#E8A23B' },
+        { name: 'auto', values: timeline.map(d => d.auto), color: '#2FE6B8' },
+        { name: 'you', values: timeline.map(d => d.user), color: '#8B7CFF' },
+        { name: 'learnings', values: timeline.map(d => d.learnings), color: '#FFB53D' },
       ],
       formatter: v => `${v}`,
     });

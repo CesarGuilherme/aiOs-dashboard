@@ -90,6 +90,6 @@ export default async function (root) {
   barChart(document.getElementById('ch-skills'), {
     categories: top.map(t => t.skill.length > 26 ? t.skill.slice(0, 25) + '…' : t.skill),
     values: top.map(t => t.invocations),
-    color: '#3FB68B',
+    color: '#2FE6B8',
   });
 }

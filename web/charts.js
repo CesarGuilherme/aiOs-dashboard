@@ -1,6 +1,8 @@
 // charts.js — themed ECharts wrappers
 
-const PALETTE = ['#4A9EFF', '#7C5CFF', '#3FB68B', '#E8A23B', '#E5484D', '#5BCEDA', '#F472B6'];
+const PALETTE = ['#27E0FF', '#8B7CFF', '#FFB53D', '#2FE6B8', '#FF4133', '#5BCBFF', '#F472B6'];
+const CHART_TICK = 'rgba(180, 220, 255, 0.55)';
+const CHART_GRID = 'rgba(120, 200, 255, 0.1)';
 
 const BASE = {
   textStyle: { color: '#E6EDF3', fontFamily: 'Inter' },
@@ -9,25 +11,26 @@ const BASE = {
 };
 
 const X_AXIS = {
-  axisLine:  { lineStyle: { color: '#1F2630' } },
-  axisLabel: { color: '#8B98A6' },
+  axisLine:  { lineStyle: { color: CHART_GRID } },
+  axisLabel: { color: CHART_TICK },
   axisTick:  { show: false },
 };
 
 const Y_AXIS = {
   axisLine:  { show: false },
   axisTick:  { show: false },
-  splitLine: { lineStyle: { color: '#1F2630' } },
-  axisLabel: { color: '#8B98A6' },
+  splitLine: { lineStyle: { color: CHART_GRID } },
+  axisLabel: { color: CHART_TICK },
 };
 
 const TOOLTIP = {
   trigger: 'axis',
-  backgroundColor: '#0F1419',
-  borderColor: '#283040',
+  backgroundColor: '#050410',
+  borderColor: 'rgba(39, 224, 255, 0.35)',
   borderWidth: 1,
   textStyle: { color: '#E6EDF3', fontFamily: 'Inter', fontSize: 12 },
   padding: [8, 12],
+  extraCssText: 'box-shadow: 0 0 20px rgba(39, 224, 255, 0.15);',
 };
 
 function mount(el) {
@@ -41,7 +44,7 @@ export function lineChart(el, { x, series }) {
   c.setOption({
     ...BASE,
     tooltip: TOOLTIP,
-    legend: { textStyle: { color: '#8B98A6' }, top: 0, right: 0, icon: 'roundRect', itemWidth: 8, itemHeight: 8 },
+    legend: { textStyle: { color: CHART_TICK }, top: 0, right: 0, icon: 'roundRect', itemWidth: 8, itemHeight: 8 },
     xAxis: { ...X_AXIS, type: 'category', data: x, boundaryGap: false },
     yAxis: { ...Y_AXIS, type: 'value' },
     series: series.map(s => ({
@@ -78,7 +81,7 @@ export function stackedBarChart(el, { categories, series, formatter }) {
       valueFormatter: formatter || (v => Number(v).toLocaleString()),
     },
     legend: {
-      textStyle: { color: '#8B98A6' },
+      textStyle: { color: CHART_TICK },
       top: 0, right: 0, icon: 'roundRect',
       itemWidth: 8, itemHeight: 8,
     },
@@ -110,7 +113,7 @@ export function groupedBarChart(el, { categories, series, formatter }) {
       valueFormatter: formatter || (v => Number(v).toLocaleString()),
     },
     legend: {
-      textStyle: { color: '#8B98A6' },
+      textStyle: { color: CHART_TICK },
       top: 0, right: 0, icon: 'roundRect',
       itemWidth: 8, itemHeight: 8,
     },
@@ -137,12 +140,12 @@ export function donutChart(el, data) {
     color: PALETTE,
     tooltip: {
       trigger: 'item',
-      backgroundColor: '#0F1419', borderColor: '#283040', borderWidth: 1,
+      backgroundColor: '#050410', borderColor: 'rgba(39, 224, 255, 0.35)', borderWidth: 1,
       textStyle: { color: '#E6EDF3', fontFamily: 'Inter' },
       formatter: p => `${p.name}<br/><b>${Number(p.value).toLocaleString()}</b> tokens (${p.percent.toFixed(1)}%)`,
     },
     legend: {
-      textStyle: { color: '#8B98A6' },
+      textStyle: { color: CHART_TICK },
       bottom: 10, icon: 'roundRect', itemWidth: 8, itemHeight: 8,
       type: 'scroll',
     },
@@ -152,7 +155,7 @@ export function donutChart(el, data) {
       radius: ['48%', '68%'],
       avoidLabelOverlap: true,
       padAngle: 2,
-      itemStyle: { borderColor: '#0F1419', borderWidth: 2, borderRadius: 4 },
+      itemStyle: { borderColor: '#050410', borderWidth: 2, borderRadius: 4 },
       label: {
         show: true,
         position: 'inside',
