@@ -7,7 +7,7 @@ const TYPE_CLASS = { user: 'opus', feedback: 'haiku', project: 'sonnet', referen
 export default async function (root) {
   const [brain, workspace] = await Promise.all([
     api('/api/brain'),
-    api('/api/workspace').catch(() => ({ applications: [], routines: [], skills: [], files: [] })),
+    api('/api/workspace').catch(() => ({ applications: [], routines: [], skills: [] })),
   ]);
   const allEntries = brain.projects.flatMap(p =>
     p.entries.map(e => ({ ...e, projectLabel: p.label, slug: e.id.split('::')[0] })));
