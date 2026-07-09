@@ -1,6 +1,6 @@
 // app.js — router, state, fetch helpers
 
-import { mountHudBackground } from './hud-background.js';
+import { addHudCorners, mountHudBackground } from './hud-background.js';
 import { disposeAll as disposeAllCharts } from './charts.js';
 
 export const $  = (sel, root=document) => root.querySelector(sel);
@@ -88,6 +88,7 @@ async function render({ preserveScroll = false } = {}) {
   $('#app').innerHTML = '';
   try {
     const cleanup = await mod.default($('#app'));
+    $('#app').querySelectorAll('.card').forEach(card => addHudCorners(card, { accent: 'cyan', size: 12, inset: 0 }));
     if (typeof cleanup === 'function') currentCleanup = cleanup;
   } catch (e) {
     $('#app').innerHTML = `<div class="card"><h2>Error</h2><pre>${fmt.htmlSafe(String(e.stack || e))}</pre></div>`;

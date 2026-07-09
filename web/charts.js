@@ -3,15 +3,15 @@
 import { addHudCorners } from '/web/hud-background.js';
 
 const COMPACT = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 });
-const PALETTE = ['#22d3ee', '#f97316', '#818cf8', '#4ade80', '#fb923c', '#94a3b8'];
-const CHART_TICK = 'rgba(180, 220, 255, 0.55)';
-const CHART_GRID = 'rgba(120, 200, 255, 0.16)';
+const PALETTE = ['#27e0ff', '#ff4133', '#30d9b8', '#8b95a5', '#ffb53d', '#818cf8'];
+const CHART_TICK = 'rgba(180, 220, 255, 0.48)';
+const CHART_GRID = 'rgba(39, 224, 255, 0.13)';
 const MONO = "'JetBrains Mono', ui-monospace, monospace";
 
 const BASE = {
-  textStyle: { color: '#E6EDF3', fontFamily: 'Inter' },
+  textStyle: { color: 'rgba(226,244,255,0.92)', fontFamily: 'Inter' },
   color: PALETTE,
-  grid: { left: 40, right: 12, top: 24, bottom: 24, containLabel: true },
+  grid: { left: 48, right: 14, top: 30, bottom: 28, containLabel: true },
 };
 
 const X_AXIS = {
@@ -23,7 +23,7 @@ const X_AXIS = {
 const Y_AXIS = {
   axisLine:  { show: false },
   axisTick:  { show: false },
-  splitLine: { lineStyle: { color: CHART_GRID, type: 'dashed' } },
+  splitLine: { lineStyle: { color: CHART_GRID, type: 'dashed', dashOffset: 2 } },
   axisLabel: { color: CHART_TICK, fontFamily: MONO, fontSize: 10 },
 };
 
@@ -113,7 +113,9 @@ export function lineChart(el, { x, series }) {
     series: series.map((s, i) => ({
       ...s, type: 'line', smooth: true, showSymbol: false,
       areaStyle: { opacity: 0.12 },
-      lineStyle: { width: 2, ...glowLine(s.color || PALETTE[i % PALETTE.length]) },
+      symbol: 'circle', symbolSize: 7, showSymbol: series.length <= 2,
+      itemStyle: { borderColor: '#030d15', borderWidth: 2 },
+      lineStyle: { width: 2.5, ...glowLine(s.color || PALETTE[i % PALETTE.length]) },
     })),
   });
   return c;
@@ -129,7 +131,7 @@ export function barChart(el, { categories, values, color }) {
     yAxis: { ...Y_AXIS, type: 'value' },
     series: [{
       type: 'bar', data: values,
-      itemStyle: { color: gradientBar(barColor), borderRadius: [4, 4, 0, 0], ...glowLine(barColor) },
+      itemStyle: { color: gradientBar(barColor), borderRadius: [2, 2, 0, 0], ...glowLine(barColor) },
       barMaxWidth: 32,
     }],
   });

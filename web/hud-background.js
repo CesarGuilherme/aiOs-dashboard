@@ -40,13 +40,13 @@ export function addHudCorners(container, { accent = 'cyan', size = 14, inset = 4
   const mk = (pos) => {
     const s = document.createElement('span');
     s.className = 'hud-corner';
-    s.style.cssText = `position:absolute;pointer-events:none;border-color:${color};${dim}${pos}`;
+    s.style.cssText = `position:absolute;pointer-events:none;border-color:${color};${dim}${pos};z-index:4;filter:drop-shadow(0 0 5px ${color})`;
     return s;
   };
-  const tl = mk(`top:${inset}px;left:${inset}px;border-left:1px solid;border-top:1px solid`);
-  const tr = mk(`top:${inset}px;right:${inset}px;border-right:1px solid;border-top:1px solid`);
-  const bl = mk(`bottom:${inset}px;left:${inset}px;border-left:1px solid;border-bottom:1px solid`);
-  const br = mk(`bottom:${inset}px;right:${inset}px;border-right:1px solid;border-bottom:1px solid`);
+  const tl = mk(`top:${inset}px;left:${inset}px;border-left:2px solid;border-top:2px solid`);
+  const tr = mk(`top:${inset}px;right:${inset}px;border-right:2px solid;border-top:2px solid`);
+  const bl = mk(`bottom:${inset}px;left:${inset}px;border-left:2px solid;border-bottom:2px solid`);
+  const br = mk(`bottom:${inset}px;right:${inset}px;border-right:2px solid;border-bottom:2px solid`);
   container.append(tl, tr, bl, br);
 }
 
