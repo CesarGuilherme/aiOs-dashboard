@@ -519,3 +519,7 @@ body.hud-theme {
 .rings-result .rp { color: var(--muted); font-size: 10px; margin-left: auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 45%; }
 .rings-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
 .rings-actions button { font-size: 11px; }
+.rings-layers { border-top: 1px solid var(--border); padding-top: 8px; max-height: 220px; overflow-y: auto; }
+.rings-layers summary { cursor: pointer; font-size: 12px; color: var(--muted); padding: 4px 0; }
+.rings-layer-list { display: flex; flex-direction: column; gap: 2px; padding: 2px 0 6px 4px; }
+.rings-layer-item { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text); padding: 2px 0; }

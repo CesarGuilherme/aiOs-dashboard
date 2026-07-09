@@ -29,10 +29,11 @@ export default async function (root) {
           <input id="rings-search" type="search" placeholder="Search nodes… ( / )" autocomplete="off">
           <div id="rings-results" class="rings-results" hidden></div>
           <label class="rings-row"><input id="rings-labels" type="checkbox"> Node names</label>
-          <label class="rings-row">Ring spin
+          <label class="rings-row">Drift
             <input id="rings-spin" type="range" min="0" max="1" step="0.05">
           </label>
           <div id="rings-detail" class="rings-detail muted">click a node</div>
+          <div class="rings-layers" id="rings-layers"></div>
         </div>
       </div>
     </div>
@@ -165,73 +166,14 @@ export default async function (root) {
     });
   }
 
-  // --- fold files into folder-orb nodes: dept → top-level dir → subdir, so the
-  // canvas shows stacked orbs with counts that explode on click (rings.js).
-  const buildFolders = files => {
-    const byDept = new Map();
-    for (const f of files) {
-      if (!byDept.has(f.dept)) byDept.set(f.dept, new Map());
-      const top = byDept.get(f.dept);
-      const seg = f.rel.includes('/') ? f.rel.split('/')[0] : '(root)';
-      if (!top.has(seg)) top.set(seg, []);
-      top.get(seg).push(f);
-    }
-    const out = [];
-    for (const [dept, top] of byDept) {
-      for (const [seg, fs] of top) {
-        const base = fs[0].path.slice(0, fs[0].path.length - fs[0].rel.length);
-        const sub = new Map();
-        for (const f of fs) {
-          const parts = f.rel.split('/');
-          const k = parts.length > 2 ? parts[1] : '(files)';
-          if (!sub.has(k)) sub.set(k, []);
-          sub.get(k).push(f);
-        }
-        out.push({
-          id: `folder::${dept}/${seg}`, name: seg, layer: 'folder', group: dept,
-          count: fs.length,
-          meta: { dept, count: fs.length, path: seg === '(root)' ? base.replace(/\/$/, '') : base + seg },
-          kids: [...sub.entries()].filter(([k]) => k !== '(files)').map(([k, kfs]) => ({
-            id: `folder::${dept}/${seg}/${k}`, name: k, layer: 'folder', group: dept, count: kfs.length,
-            meta: { dept, count: kfs.length, path: `${base}${seg}/${k}` },
-            kids: [], leaves: kfs,
-          })),
-          leaves: sub.get('(files)') || [],
-        });
-      }
-    }
-    return out;
-  };
-
-  // --- rings: memory nodes from /api/brain + agentic layers from /api/workspace
-  const nodes = [
-    ...allEntries.map(e => ({
-      id: e.id, name: e.name, layer: 'memory', group: e.projectLabel,
-      size: 1 + e.links.length,
-      meta: { project: e.projectLabel, links: e.links.length, mtime: e.mtime, mem: true, name: e.name },
-    })),
-    ...workspace.skills.map(s => ({
-      id: 'skill::' + s.name, name: s.name, layer: 'skills', group: s.source,
-      size: 1, meta: { source: s.source },
-    })),
-    ...workspace.routines.map(r => ({
-      id: 'routine::' + r.name, name: r.name, layer: 'routines', group: '',
-      size: 1, meta: {},
-    })),
-    ...workspace.applications.map(a => ({
-      id: 'app::' + a.name, name: a.name, layer: 'applications', group: a.scope,
-      size: 1, meta: { scope: a.scope },
-    })),
-    ...buildFolders(workspace.files || []),
-  ];
-  // memory wikilinks + best-effort skill→routine links (routine name contains skill name)
-  const links = [
-    ...brain.links,
-    ...workspace.routines.flatMap(r =>
-      workspace.skills
-        .filter(s => r.name.toLowerCase().includes(s.name.toLowerCase()))
-        .map(s => ({ source: 'skill::' + s.name, target: 'routine::' + r.name }))),
-  ];
+  // --- rings: memory nodes + wikilinks only — the canvas is a pure synapse graph.
+  // Skills/routines/applications are agentic-layer context, shown in the sidebar list instead.
+  const nodes = allEntries.map(e => ({
+    id: e.id, name: e.name, layer: 'memory', group: e.projectLabel,
+    size: 1 + e.links.length,
+    meta: { project: e.projectLabel, links: e.links.length, mtime: e.mtime, mem: true, name: e.name },
+  }));
+  const links = brain.links;
 
   const detail = root.querySelector('#rings-detail');
   const fmtSize = b => b == null ? '' : b > 1048576 ? (b / 1048576).toFixed(1) + ' MB' : b > 1024 ? (b / 1024).toFixed(0) + ' KB' : b + ' B';
@@ -279,17 +221,7 @@ export default async function (root) {
   // search dropdown
   const search = root.querySelector('#rings-search');
   const results = root.querySelector('#rings-results');
-  // search index: visible nodes + every scanned file (a file hit flies to and
-  // explodes its top-level folder orb)
-  const searchIndex = [
-    ...nodes.map(n => ({ name: n.name, sub: n.meta?.project || n.group || n.layer, target: n.id, node: n, color: n.layer === 'skills' ? '#E8944A' : n.layer === 'routines' ? '#D9B944' : n.layer === 'applications' ? '#8FB4E3' : '#B48CFF' })),
-    ...(workspace.files || []).map(f => ({
-      name: f.name, sub: f.dept + '/' + f.rel,
-      target: `folder::${f.dept}/${f.rel.includes('/') ? f.rel.split('/')[0] : '(root)'}`,
-      node: { id: 'file::' + f.path, name: f.name, layer: 'file', meta: { ...f } },
-      color: '#C9B8F0',
-    })),
-  ];
+  const searchIndex = nodes.map(n => ({ name: n.name, sub: n.meta?.project || n.group || n.layer, target: n.id, node: n, color: '#B48CFF' }));
   const renderResults = q => {
     if (!q) { results.hidden = true; results.innerHTML = ''; return; }
     const ql = q.toLowerCase();
@@ -306,12 +238,34 @@ export default async function (root) {
         const e = hits[+row.dataset.i];
         results.hidden = true;
         if (!e) return;
-        rings.expand?.(e.target);
         rings.flyTo(e.target);
         showDetail(e.node);
       }));
   };
-  search.addEventListener('input', () => { rings.setFilter(search.value.trim() || null); renderResults(search.value.trim()); });
+  const layerLists = root.querySelector('#rings-layers');
+  layerLists.innerHTML = [
+    { title: 'Skills', items: workspace.skills, badge: s => s.source },
+    { title: 'Routines', items: workspace.routines, badge: () => '' },
+    { title: 'Applications', items: workspace.applications, badge: a => a.scope },
+  ].filter(g => g.items.length).map(g => `
+    <details>
+      <summary>${g.title} <span class="muted">(${g.items.length})</span></summary>
+      <div class="rings-layer-list">
+        ${g.items.map(it => `
+          <div class="rings-layer-item" data-name="${fmt.htmlSafe(it.name.toLowerCase())}">
+            ${it.source || it.scope ? `<span class="badge">${fmt.htmlSafe(g.badge(it))}</span>` : ''}
+            <span>${fmt.htmlSafe(it.name)}</span>
+          </div>`).join('')}
+      </div>
+    </details>`).join('');
+  search.addEventListener('input', () => {
+    const q = search.value.trim();
+    rings.setFilter(q || null);
+    renderResults(q);
+    const ql = q.toLowerCase();
+    layerLists.querySelectorAll('.rings-layer-item').forEach(el =>
+      el.style.display = !ql || el.dataset.name.includes(ql) ? '' : 'none');
+  });
   search.addEventListener('keydown', e => {
     if (e.key === 'Escape') { results.hidden = true; search.blur(); }
     if (e.key === 'Enter') results.querySelector('.rings-result')?.click();
@@ -322,7 +276,7 @@ export default async function (root) {
     }
   };
   document.addEventListener('keydown', onSlash);
-  search.placeholder = `Search ${searchIndex.length.toLocaleString()} files… ( / )`;
+  search.placeholder = `Search ${searchIndex.length.toLocaleString()} memories… ( / )`;
   const labelsBox = root.querySelector('#rings-labels');
   labelsBox.checked = rings.labels;
   labelsBox.addEventListener('change', () => rings.setLabels(labelsBox.checked));
