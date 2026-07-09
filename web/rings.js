@@ -359,7 +359,7 @@ export function ringsCanvas(el, { nodes, links, onNodeClick, onNodeHover }) {
 
   let dragging = false, rotating = false, moved = false, sx = 0, sy = 0;
   const onDown = e => {
-    dragging = true; rotating = e.ctrlKey || e.metaKey;
+    dragging = true; rotating = e.shiftKey;
     moved = false; sx = e.clientX; sy = e.clientY;
     canvas.style.cursor = rotating ? 'move' : 'grabbing';
   };
@@ -367,7 +367,7 @@ export function ringsCanvas(el, { nodes, links, onNodeClick, onNodeHover }) {
     const rect = canvas.getBoundingClientRect();
     if (dragging) {
       const dx = e.clientX - sx, dy = e.clientY - sy;
-      if (rotating) rotateAll(dy * 0.005, dx * 0.005, 0);   // ctrl/cmd + drag = orbit
+      if (rotating) rotateAll(dy * 0.005, dx * 0.005, 0);   // shift + drag = orbit
       else { panX += dx; panY += dy; }
       if (Math.abs(dx) + Math.abs(dy) > 3) moved = true;
       sx = e.clientX; sy = e.clientY; return;
