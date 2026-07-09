@@ -47,11 +47,18 @@ export default async function (root) {
     (totals.cache_create_5m_tokens || 0) +
     (totals.cache_create_1h_tokens || 0);
 
-  const kpi = (label, compactVal, fullVal, cls = '') => `
-    <div class="card kpi ${cls}">
+  // Cycle through the theme's accent tokens so each KPI tile glows a
+  // distinct color, like sentimentos' per-tile HUD accents.
+  const KPI_ACCENTS = ['--accent', '--accent-2', '--warn', '--good'];
+  let kpiIndex = 0;
+  const kpi = (label, compactVal, fullVal, cls = '') => {
+    const accent = KPI_ACCENTS[kpiIndex++ % KPI_ACCENTS.length];
+    return `
+    <div class="card kpi ${cls}" style="--hud-accent:var(${accent})">
       <div class="label">${label}</div>
       <div class="value" title="${fullVal}">${compactVal}</div>
     </div>`;
+  };
 
   const rangeTabs = `
     <div class="range-tabs" role="tablist">

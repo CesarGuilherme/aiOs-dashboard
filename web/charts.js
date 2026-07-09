@@ -1,41 +1,104 @@
-// charts.js — themed ECharts wrappers
+// charts.js — themed ECharts wrappers, HUD styling ported from jarvis-ui's ChartWidget
 
-const PALETTE = ['#27E0FF', '#8B7CFF', '#FFB53D', '#2FE6B8', '#FF4133', '#5BCBFF', '#F472B6'];
+import { addHudCorners } from '/web/hud-background.js';
+
+const COMPACT = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 });
+const PALETTE = ['#22d3ee', '#f97316', '#818cf8', '#4ade80', '#fb923c', '#94a3b8'];
 const CHART_TICK = 'rgba(180, 220, 255, 0.55)';
-const CHART_GRID = 'rgba(120, 200, 255, 0.1)';
+const CHART_GRID = 'rgba(120, 200, 255, 0.16)';
+const MONO = "'JetBrains Mono', ui-monospace, monospace";
 
 const BASE = {
   textStyle: { color: '#E6EDF3', fontFamily: 'Inter' },
   color: PALETTE,
-  grid: { left: 36, right: 12, top: 24, bottom: 24, containLabel: true },
+  grid: { left: 40, right: 12, top: 24, bottom: 24, containLabel: true },
 };
 
 const X_AXIS = {
   axisLine:  { lineStyle: { color: CHART_GRID } },
-  axisLabel: { color: CHART_TICK },
+  axisLabel: { color: CHART_TICK, fontFamily: MONO, fontSize: 10, formatter: v => String(v).toUpperCase() },
   axisTick:  { show: false },
 };
 
 const Y_AXIS = {
   axisLine:  { show: false },
   axisTick:  { show: false },
-  splitLine: { lineStyle: { color: CHART_GRID } },
-  axisLabel: { color: CHART_TICK },
+  splitLine: { lineStyle: { color: CHART_GRID, type: 'dashed' } },
+  axisLabel: { color: CHART_TICK, fontFamily: MONO, fontSize: 10 },
 };
+
+function tooltipHtml(title, rows) {
+  const rowsHtml = rows.map(r => `
+    <div style="display:flex;align-items:center;gap:8px;font-size:11px;margin-top:5px">
+      <span style="width:6px;height:6px;border-radius:50%;background:${r.color};box-shadow:0 0 6px ${r.color}88"></span>
+      <span style="color:rgba(148,163,184,0.8)">${r.name}</span>
+      <span style="margin-left:auto;padding-left:12px;font-weight:700;font-variant-numeric:tabular-nums">${r.value}</span>
+    </div>`).join('');
+  return `
+    <div style="font-family:${MONO}">
+      <div style="font-size:9px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:#22d3ee">${title}</div>
+      ${rowsHtml}
+    </div>`;
+}
 
 const TOOLTIP = {
   trigger: 'axis',
   backgroundColor: '#050410',
-  borderColor: 'rgba(39, 224, 255, 0.35)',
+  borderColor: 'rgba(34, 211, 238, 0.35)',
   borderWidth: 1,
-  textStyle: { color: '#E6EDF3', fontFamily: 'Inter', fontSize: 12 },
-  padding: [8, 12],
-  extraCssText: 'box-shadow: 0 0 20px rgba(39, 224, 255, 0.15);',
+  padding: [10, 12],
+  extraCssText: 'box-shadow: 0 0 20px rgba(34, 211, 238, 0.15);',
+  formatter: params => {
+    const list = Array.isArray(params) ? params : [params];
+    if (!list.length) return '';
+    return tooltipHtml(String(list[0].axisValueLabel ?? list[0].name ?? '').toUpperCase(), list.map(p => ({
+      color: p.color,
+      name: p.seriesName,
+      value: Number(p.value).toLocaleString(),
+    })));
+  },
 };
+
+const LEGEND_BASE = {
+  textStyle: { color: CHART_TICK, fontFamily: MONO, fontSize: 10 },
+  icon: 'circle', itemWidth: 7, itemHeight: 7,
+  formatter: name => name.toUpperCase(),
+};
+
+function glowLine(color) {
+  return { shadowBlur: 10, shadowColor: color };
+}
+
+function gradientBar(color) {
+  return new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+    { offset: 0, color },
+    { offset: 1, color: color + '33' },
+  ]);
+}
+
+// Every chart instance + its window resize listener, so a route swap can
+// dispose them all — without this they leak on every re-render (nav or
+// SSE-triggered), including a phantom resize handler per chart.
+const mounted = [];
+
+export function disposeAll() {
+  for (const { c, onResize } of mounted) {
+    window.removeEventListener('resize', onResize);
+    c.dispose();
+  }
+  mounted.length = 0;
+}
 
 function mount(el) {
   const c = echarts.init(el, null, { renderer: 'svg' });
-  window.addEventListener('resize', () => c.resize());
+  const onResize = () => c.resize();
+  window.addEventListener('resize', onResize);
+  mounted.push({ c, onResize });
+  const card = el.closest('.card');
+  if (card) {
+    addHudCorners(card, { accent: 'cyan' });
+    card.classList.add('chart-card');
+  }
   return c;
 }
 
@@ -44,12 +107,13 @@ export function lineChart(el, { x, series }) {
   c.setOption({
     ...BASE,
     tooltip: TOOLTIP,
-    legend: { textStyle: { color: CHART_TICK }, top: 0, right: 0, icon: 'roundRect', itemWidth: 8, itemHeight: 8 },
+    legend: { ...LEGEND_BASE, top: 0, right: 0 },
     xAxis: { ...X_AXIS, type: 'category', data: x, boundaryGap: false },
     yAxis: { ...Y_AXIS, type: 'value' },
-    series: series.map(s => ({
+    series: series.map((s, i) => ({
       ...s, type: 'line', smooth: true, showSymbol: false,
-      areaStyle: { opacity: 0.12 }, lineStyle: { width: 2 },
+      areaStyle: { opacity: 0.12 },
+      lineStyle: { width: 2, ...glowLine(s.color || PALETTE[i % PALETTE.length]) },
     })),
   });
   return c;
@@ -57,6 +121,7 @@ export function lineChart(el, { x, series }) {
 
 export function barChart(el, { categories, values, color }) {
   const c = mount(el);
+  const barColor = color || PALETTE[0];
   c.setOption({
     ...BASE,
     tooltip: { ...TOOLTIP, axisPointer: { type: 'shadow' } },
@@ -64,7 +129,7 @@ export function barChart(el, { categories, values, color }) {
     yAxis: { ...Y_AXIS, type: 'value' },
     series: [{
       type: 'bar', data: values,
-      itemStyle: { color: color || PALETTE[0], borderRadius: [4, 4, 0, 0] },
+      itemStyle: { color: gradientBar(barColor), borderRadius: [4, 4, 0, 0], ...glowLine(barColor) },
       barMaxWidth: 32,
     }],
   });
@@ -78,27 +143,34 @@ export function stackedBarChart(el, { categories, series, formatter }) {
     tooltip: {
       ...TOOLTIP,
       axisPointer: { type: 'shadow' },
-      valueFormatter: formatter || (v => Number(v).toLocaleString()),
+      formatter: params => {
+        const list = Array.isArray(params) ? params : [params];
+        if (!list.length) return '';
+        return tooltipHtml(String(list[0].axisValueLabel ?? list[0].name ?? '').toUpperCase(), list.map(p => ({
+          color: p.color,
+          name: p.seriesName,
+          value: formatter ? formatter(p.value) : Number(p.value).toLocaleString(),
+        })));
+      },
     },
-    legend: {
-      textStyle: { color: CHART_TICK },
-      top: 0, right: 0, icon: 'roundRect',
-      itemWidth: 8, itemHeight: 8,
-    },
+    legend: { ...LEGEND_BASE, top: 0, right: 0 },
     xAxis: {
       ...X_AXIS, type: 'category', data: categories,
       axisLabel: { ...X_AXIS.axisLabel, interval: categories.length > 20 ? 'auto' : 0, rotate: categories.length > 12 ? 45 : 0 },
     },
     yAxis: { ...Y_AXIS, type: 'value' },
-    series: series.map((s, i) => ({
-      name: s.name,
-      type: 'bar',
-      stack: 'total',
-      data: s.values,
-      itemStyle: { color: s.color || PALETTE[i % PALETTE.length] },
-      barMaxWidth: 24,
-      emphasis: { focus: 'series' },
-    })),
+    series: series.map((s, i) => {
+      const c2 = s.color || PALETTE[i % PALETTE.length];
+      return {
+        name: s.name,
+        type: 'bar',
+        stack: 'total',
+        data: s.values,
+        itemStyle: { color: gradientBar(c2) },
+        barMaxWidth: 24,
+        emphasis: { focus: 'series' },
+      };
+    }),
   });
   return c;
 }
@@ -110,63 +182,82 @@ export function groupedBarChart(el, { categories, series, formatter }) {
     tooltip: {
       ...TOOLTIP,
       axisPointer: { type: 'shadow' },
-      valueFormatter: formatter || (v => Number(v).toLocaleString()),
+      formatter: params => {
+        const list = Array.isArray(params) ? params : [params];
+        if (!list.length) return '';
+        return tooltipHtml(String(list[0].axisValueLabel ?? list[0].name ?? '').toUpperCase(), list.map(p => ({
+          color: p.color,
+          name: p.seriesName,
+          value: formatter ? formatter(p.value) : Number(p.value).toLocaleString(),
+        })));
+      },
     },
-    legend: {
-      textStyle: { color: CHART_TICK },
-      top: 0, right: 0, icon: 'roundRect',
-      itemWidth: 8, itemHeight: 8,
-    },
+    legend: { ...LEGEND_BASE, top: 0, right: 0 },
     xAxis: {
       ...X_AXIS, type: 'category', data: categories,
       axisLabel: { ...X_AXIS.axisLabel, interval: 0, rotate: categories.length > 5 ? 25 : 0 },
     },
     yAxis: { ...Y_AXIS, type: 'value' },
-    series: series.map((s, i) => ({
-      name: s.name,
-      type: 'bar',
-      data: s.values,
-      itemStyle: { color: s.color || PALETTE[i % PALETTE.length], borderRadius: [4, 4, 0, 0] },
-      barMaxWidth: 24,
-      emphasis: { focus: 'series' },
-    })),
+    series: series.map((s, i) => {
+      const c2 = s.color || PALETTE[i % PALETTE.length];
+      return {
+        name: s.name,
+        type: 'bar',
+        data: s.values,
+        itemStyle: { color: gradientBar(c2), borderRadius: [4, 4, 0, 0], ...glowLine(c2) },
+        barMaxWidth: 24,
+        emphasis: { focus: 'series' },
+      };
+    }),
   });
   return c;
 }
 
 export function donutChart(el, data) {
   const c = mount(el);
+  const total = data.reduce((sum, d) => sum + (Number(d.value) || 0), 0);
   c.setOption({
     color: PALETTE,
     tooltip: {
       trigger: 'item',
-      backgroundColor: '#050410', borderColor: 'rgba(39, 224, 255, 0.35)', borderWidth: 1,
-      textStyle: { color: '#E6EDF3', fontFamily: 'Inter' },
-      formatter: p => `${p.name}<br/><b>${Number(p.value).toLocaleString()}</b> tokens (${p.percent.toFixed(1)}%)`,
+      backgroundColor: '#050410', borderColor: 'rgba(34, 211, 238, 0.35)', borderWidth: 1,
+      extraCssText: 'box-shadow: 0 0 20px rgba(34, 211, 238, 0.15);',
+      formatter: p => tooltipHtml(String(p.name).toUpperCase(), [
+        { color: p.color, name: 'tokens', value: Number(p.value).toLocaleString() },
+        { color: p.color, name: 'share', value: p.percent.toFixed(1) + '%' },
+      ]),
     },
     legend: {
-      textStyle: { color: CHART_TICK },
-      bottom: 10, icon: 'roundRect', itemWidth: 8, itemHeight: 8,
-      type: 'scroll',
+      ...LEGEND_BASE, orient: 'vertical', right: 4, top: 'middle', itemGap: 14,
+      formatter: name => {
+        const d = data.find(x => x.name === name);
+        const pct = total ? ((d.value / total) * 100).toFixed(1) : '0.0';
+        return `${name.toUpperCase()}  ${pct}%`;
+      },
     },
     series: [{
       type: 'pie',
-      center: ['50%', '44%'],
+      center: ['32%', '50%'],
       radius: ['48%', '68%'],
       avoidLabelOverlap: true,
       padAngle: 2,
       itemStyle: { borderColor: '#050410', borderWidth: 2, borderRadius: 4 },
-      label: {
-        show: true,
-        position: 'inside',
-        color: '#fff',
-        fontSize: 12,
-        fontWeight: 600,
-        formatter: ({ percent }) => percent >= 6 ? percent.toFixed(0) + '%' : '',
-      },
+      label: { show: false },
       labelLine: { show: false },
       data,
     }],
+    graphic: {
+      elements: [
+        {
+          type: 'text', left: '29.5%', top: '44%',
+          style: { text: COMPACT.format(total), fontSize: 20, fontWeight: 700, fontFamily: MONO, fill: PALETTE[0], textAlign: 'center' },
+        },
+        {
+          type: 'text', left: '29.5%', top: '52%',
+          style: { text: 'TOTAL', fontSize: 9, letterSpacing: 2, fontFamily: MONO, fill: CHART_TICK, textAlign: 'center' },
+        },
+      ],
+    },
   });
   return c;
 }

@@ -1,6 +1,7 @@
 // app.js — router, state, fetch helpers
 
 import { mountHudBackground } from './hud-background.js';
+import { disposeAll as disposeAllCharts } from './charts.js';
 
 export const $  = (sel, root=document) => root.querySelector(sel);
 export const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
@@ -83,6 +84,7 @@ async function render({ preserveScroll = false } = {}) {
   const mod = await loader();
   const y = preserveScroll ? window.scrollY : 0;
   if (currentCleanup) { try { currentCleanup(); } catch {} currentCleanup = null; }
+  disposeAllCharts();
   $('#app').innerHTML = '';
   try {
     const cleanup = await mod.default($('#app'));
