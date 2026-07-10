@@ -1,4 +1,4 @@
-import { api, fmt, state } from '/web/app.js';
+import { api, fmt, setUsdBrlRate, state } from '/web/app.js';
 import { barChart, donutChart, groupedBarChart, stackedBarChart } from '/web/charts.js';
 
 const RANGES = [
@@ -8,16 +8,32 @@ const RANGES = [
   { key: 'all', label: 'All', days: null },
 ];
 
+function hashQuery() {
+  return location.hash.split('?')[1] || '';
+}
+
+function readParam(name, fallback = null) {
+  const m = new RegExp(`(?:^|&)${name}=([^&]*)`).exec(hashQuery());
+  return m ? decodeURIComponent(m[1]) : fallback;
+}
+
 function readRange() {
-  const q = (location.hash.split('?')[1] || '');
-  const m = /(?:^|&)range=([^&]+)/.exec(q);
-  const k = m && decodeURIComponent(m[1]);
+  const k = readParam('range');
   return RANGES.find(r => r.key === k) || RANGES[1];
 }
 
-function writeRange(key) {
+function readSource() {
+  const s = readParam('source', 'all');
+  return (s === 'claude' || s === 'grok') ? s : 'all';
+}
+
+function writeQuery({ range, source }) {
   const base = (location.hash.replace(/^#/, '').split('?')[0]) || '/overview';
-  location.hash = '#' + base + '?range=' + encodeURIComponent(key);
+  const parts = [];
+  if (range && range !== '30d') parts.push('range=' + encodeURIComponent(range));
+  // always keep source when not all so deep-links work; omit all for clean URL
+  if (source && source !== 'all') parts.push('source=' + encodeURIComponent(source));
+  location.hash = '#' + base + (parts.length ? '?' + parts.join('&') : '');
 }
 
 function sinceIso(range) {
@@ -25,27 +41,53 @@ function sinceIso(range) {
   return new Date(Date.now() - range.days * 86400 * 1000).toISOString();
 }
 
-function withSince(url, since) {
-  if (!since) return url;
-  return url + (url.includes('?') ? '&' : '?') + 'since=' + encodeURIComponent(since);
+function withParams(url, { since, source }) {
+  const q = [];
+  if (since) q.push('since=' + encodeURIComponent(since));
+  if (source && source !== 'all') q.push('source=' + encodeURIComponent(source));
+  if (!q.length) return url;
+  return url + (url.includes('?') ? '&' : '?') + q.join('&');
 }
 
 export default async function (root) {
   const range = readRange();
+  const source = readSource();
   const since = sinceIso(range);
+  const q = { since, source };
 
   const [totals, projects, sessions, tools, daily, byModel] = await Promise.all([
-    api(withSince('/api/overview', since)),
-    api(withSince('/api/projects', since)),
-    api(withSince('/api/sessions?limit=10', since)),
-    api(withSince('/api/tools', since)),
-    api(withSince('/api/daily', since)),
-    api(withSince('/api/by-model', since)),
+    api(withParams('/api/overview', q)),
+    api(withParams('/api/projects', q)),
+    api(withParams('/api/sessions?limit=10', q)),
+    api(withParams('/api/tools', q)),
+    api(withParams('/api/daily', q)),
+    api(withParams('/api/by-model', q)),
   ]);
+
+  if (totals.usd_brl_rate) setUsdBrlRate(totals.usd_brl_rate);
 
   const cacheCreate =
     (totals.cache_create_5m_tokens || 0) +
     (totals.cache_create_1h_tokens || 0);
+
+  // Chips always list agents present in by_source (unfiltered counts from API)
+  const sources = totals.by_source || [];
+  const chip = (key, label, cls, meta = '') => {
+    const active = source === key;
+    return `<button type="button" class="source-chip badge ${cls}${active ? ' active' : ''}"
+      data-source="${key}" aria-pressed="${active}">
+      ${fmt.htmlSafe(label)}${meta ? ` · ${meta}` : ''}
+    </button>`;
+  };
+  const chips = [
+    chip('all', 'all', 'all-src'),
+    ...sources.map(s => chip(
+      s.source,
+      s.source,
+      fmt.sourceBadge(s.source) || 'sonnet',
+      `${fmt.int(s.sessions)} sess · ${fmt.compact(s.billable_tokens)} tok`,
+    )),
+  ].join('');
 
   // Cycle through the theme's accent tokens so each KPI tile glows a
   // distinct color, like sentimentos' per-tile HUD accents.
@@ -65,12 +107,20 @@ export default async function (root) {
       ${RANGES.map(r => `<button data-range="${r.key}" class="${r.key === range.key ? 'active' : ''}">${r.label}</button>`).join('')}
     </div>`;
 
+  const filterHint = source === 'all'
+    ? ''
+    : `<span class="muted" style="font-size:12px">showing <b>${fmt.htmlSafe(source)}</b> only</span>`;
+
   root.innerHTML = `
     <div class="flex" style="margin-bottom:14px">
       <h2 style="margin:0;font-size:16px;letter-spacing:-0.01em">Overview</h2>
-      <span class="muted" style="font-size:12px">${range.days ? `last ${range.days} days` : 'all time'}</span>
+      <span class="muted" style="font-size:12px">${range.days ? `last ${range.days} days` : 'all time'}${totals.usd_brl_rate ? ` · USD→BRL ${Number(totals.usd_brl_rate).toFixed(2).replace('.', ',')}` : ''}</span>
       <div class="spacer"></div>
       ${rangeTabs}
+    </div>
+    <div class="flex source-chips" style="gap:8px;margin:-4px 0 14px;flex-wrap:wrap;align-items:center">
+      ${chips}
+      ${filterHint}
     </div>
 
     <div class="row cols-7">
@@ -100,25 +150,27 @@ export default async function (root) {
     <details class="card glossary" style="margin-top:16px">
       <summary><h3 style="display:inline-block;margin:0">What do these numbers mean?</h3><span class="muted" style="font-size:12px">— click to expand</span></summary>
       <dl>
-        <dt>Session</dt><dd>One run of Claude Code (from <code>claude</code> to exit). Each session is a single <code>.jsonl</code> file.</dd>
-        <dt>Turn</dt><dd>One message you sent to Claude. Each turn triggers a response (possibly with tool calls in between).</dd>
-        <dt>Input tokens</dt><dd>The new text you (and tool results) sent to Claude this turn. Billed at the full input rate.</dd>
-        <dt>Output tokens</dt><dd>The text Claude wrote back. Billed at the highest rate — usually the biggest cost driver per turn.</dd>
-        <dt>Cache read</dt><dd>Tokens Claude re-used from a cache (your CLAUDE.md, previously-read files, the conversation so far). ~10× cheaper than fresh input. High cache-read counts = good cost hygiene.</dd>
-        <dt>Cache create</dt><dd>Writing something into the cache for the first time. One-time cost; pays off on the next turn.</dd>
+        <dt>Session</dt><dd>One agent run — Claude Code JSONL under <code>~/.claude/projects/</code>, or a Grok session under <code>~/.grok/sessions/</code>.</dd>
+        <dt>Turn</dt><dd>One message you sent. Each turn triggers a response (possibly with tool calls in between).</dd>
+        <dt>Input tokens</dt><dd>New context this turn. Claude: billed input. Grok: reconstructed from context-size deltas (see Known Limitations).</dd>
+        <dt>Output tokens</dt><dd>Agent reply text. Claude: billed output. Grok: estimated from message length.</dd>
+        <dt>Cache read</dt><dd>Claude-only: tokens re-used from cache (~10× cheaper). Always 0 for Grok rows.</dd>
+        <dt>Cache create</dt><dd>Claude-only: writing into the cache. Always 0 for Grok rows.</dd>
+        <dt>Est. cost</dt><dd>Shown in <strong>R$</strong> (USD rates × <code>~/.claude/.usd_brl</code>). API-equivalent, not subscription math.</dd>
         <dt>Billable tokens</dt><dd>Input + Output + Cache create. Cache reads are billed separately (and much cheaper).</dd>
+        <dt>Agent chips</dt><dd>Click <b>claude</b> or <b>grok</b> to filter every KPI and chart on this page to that agent. Click again or <b>all</b> to clear.</dd>
       </dl>
     </details>
 
     <div class="row cols-2" style="margin-top:16px">
       <div class="card">
         <h3>Your daily work</h3>
-        <p class="muted" style="margin:-4px 0 10px;font-size:12px">Tokens you paid for: what you sent (<b>input</b>), what Claude wrote (<b>output</b>), and what got stored for re-use (<b>cache create</b>).</p>
+        <p class="muted" style="margin:-4px 0 10px;font-size:12px">Tokens you paid for: what you sent (<b>input</b>), what the agent wrote (<b>output</b>), and what got stored for re-use (<b>cache create</b>).</p>
         <div id="ch-daily-billable" style="height:260px"></div>
       </div>
       <div class="card">
         <h3>Daily cache reads</h3>
-        <p class="muted" style="margin:-4px 0 10px;font-size:12px"><b>Cache reads</b> are cheap re-uses of things Claude already saw (like your CLAUDE.md). They cost ~10× less than regular input tokens — high numbers here are a good thing.</p>
+        <p class="muted" style="margin:-4px 0 10px;font-size:12px"><b>Cache reads</b> are cheap re-uses of things already seen (like CLAUDE.md). They cost ~10× less than regular input — high numbers here are good (Claude only).</p>
         <div id="ch-daily-cache" style="height:260px"></div>
       </div>
     </div>
@@ -127,7 +179,7 @@ export default async function (root) {
       <div class="card"><h3>Tokens by project</h3><div id="ch-projects" style="height:320px"></div></div>
       <div class="card">
         <h3>Token usage by model</h3>
-        <p class="muted" style="margin:-4px 0 4px;font-size:12px">Share of billable tokens per Claude model.</p>
+        <p class="muted" style="margin:-4px 0 4px;font-size:12px">Share of billable tokens per model${source !== 'all' ? ` (${fmt.htmlSafe(source)})` : ' (Claude + Grok)'}.</p>
         <div id="ch-model" style="height:300px"></div>
       </div>
     </div>
@@ -137,23 +189,33 @@ export default async function (root) {
       <div class="card">
         <h3 style="display:flex;align-items:center"><span>Recent sessions</span><span class="spacer"></span><a href="#/sessions" style="font-weight:400;font-size:12px">all →</a></h3>
         <table>
-          <thead><tr><th>started</th><th>project</th><th class="num">tokens</th></tr></thead>
+          <thead><tr><th>started</th><th>agent</th><th>project</th><th class="num">tokens</th></tr></thead>
           <tbody>
             ${sessions.map(s => `
               <tr>
                 <td class="mono">${fmt.ts(s.started)}</td>
+                <td><span class="badge ${fmt.sourceBadge(s.source)}">${fmt.htmlSafe(s.source || 'claude')}</span></td>
                 <td><a href="#/sessions/${encodeURIComponent(s.session_id)}">${fmt.htmlSafe(s.project_name || s.project_slug)}</a></td>
                 <td class="num">${fmt.compact(s.tokens)}</td>
-              </tr>`).join('') || '<tr><td colspan="3" class="muted">no sessions in this range</td></tr>'}
+              </tr>`).join('') || '<tr><td colspan="4" class="muted">no sessions in this range</td></tr>'}
           </tbody>
         </table>
       </div>
     </div>
   `;
 
-  // range buttons
+  // range buttons — preserve source
   root.querySelectorAll('.range-tabs button').forEach(btn => {
-    btn.addEventListener('click', () => writeRange(btn.dataset.range));
+    btn.addEventListener('click', () => writeQuery({ range: btn.dataset.range, source }));
+  });
+
+  // source chips — toggle: click active source → all
+  root.querySelectorAll('.source-chip').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const next = btn.dataset.source;
+      const selected = (next === source && next !== 'all') ? 'all' : next;
+      writeQuery({ range: range.key, source: selected });
+    });
   });
 
   // Your daily work — billable tokens (input + output + cache create)
@@ -231,5 +293,5 @@ function planSubtitle() {
   if (!state.pricing || state.plan === 'api') return '';
   const p = state.pricing.plans[state.plan];
   if (!p || !p.monthly) return '';
-  return `<div class="sub">pay $${p.monthly}/mo on ${fmt.htmlSafe(p.label)}</div>`;
+  return `<div class="sub">pay ${fmt.usd(p.monthly)}/mo on ${fmt.htmlSafe(p.label)}</div>`;
 }

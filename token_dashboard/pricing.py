@@ -14,6 +14,8 @@ def load_pricing(path: Union[str, Path]) -> dict:
 
 def _tier_from_name(model: str) -> Optional[str]:
     m = (model or "").lower()
+    if m.startswith("grok") or "grok" in m:
+        return "grok"
     for tier in ("opus", "sonnet", "haiku"):
         if tier in m:
             return tier

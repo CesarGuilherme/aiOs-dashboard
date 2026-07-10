@@ -1,8 +1,8 @@
-"""Scan ~/.claude for the agentic layers the Brain rings visualize.
+"""Scan agent homes for the agentic layers the Brain rings visualize.
 
-Applications = MCP servers in ~/.claude.json; Routines = scheduled tasks;
-Skills = user skills + plugin-cache skills. Every missing path yields an
-empty list — the endpoint must never 500 on a bare machine.
+Applications = MCP servers in ~/.claude.json (+ Grok project mcps if present);
+Routines = Claude scheduled tasks; Skills = Claude + Grok skills/plugins.
+Every missing path yields an empty list — the endpoint must never 500.
 """
 import json
 import os
@@ -83,9 +83,35 @@ def _skills(claude_dir: Path) -> list:
     return sorted(seen.values(), key=lambda s: s["name"])
 
 
-def scan_workspace(claude_dir: Path) -> dict:
+def _grok_skills(grok_dir: Path) -> list:
+    seen = {}
+    if not grok_dir.is_dir():
+        return []
+    for root_name, label in (("skills", "grok-user"), ("bundled/skills", "grok-bundled")):
+        root = grok_dir / root_name if root_name != "bundled/skills" else grok_dir / "bundled" / "skills"
+        if not root.is_dir():
+            continue
+        for child in sorted(root.iterdir()):
+            if child.is_dir() and not child.name.startswith("."):
+                seen[child.name] = {"name": child.name, "source": label}
+    for skill_dir in grok_dir.glob("installed-plugins/*/skills/*"):
+        if skill_dir.is_dir():
+            seen.setdefault(skill_dir.name, {"name": skill_dir.name, "source": "grok-plugin"})
+    return sorted(seen.values(), key=lambda s: s["name"])
+
+
+def scan_workspace(claude_dir: Path, grok_dir: Path | None = None) -> dict:
+    skills = _skills(claude_dir)
+    if grok_dir is not None:
+        # merge Grok skills without clobbering Claude names already present
+        have = {s["name"] for s in skills}
+        for s in _grok_skills(grok_dir):
+            if s["name"] not in have:
+                skills.append(s)
+                have.add(s["name"])
+        skills = sorted(skills, key=lambda s: s["name"])
     return {
         "applications": _applications(claude_dir),
         "routines": _routines(claude_dir),
-        "skills": _skills(claude_dir),
+        "skills": skills,
     }

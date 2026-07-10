@@ -8,7 +8,7 @@ Thanks for considering a contribution! This is a small, stdlib-only Python proje
 python3 -m unittest discover tests
 ```
 
-That's it. No `pip install`, no fixtures to download. All tests run in under 5 seconds.
+That's it. No `pip install`, no fixtures to download. All tests run in under 10 seconds.
 
 If you're fixing a bug, add a failing test first. If you're adding a feature, add a test that exercises the happy path.
 
@@ -18,7 +18,7 @@ If you're fixing a bug, add a failing test first. If you're adding a feature, ad
 python3 cli.py dashboard --no-open
 ```
 
-Open http://127.0.0.1:8080 in your browser. The server re-scans every 30 seconds and pushes updates over Server-Sent Events, so you'll see changes without a hard refresh.
+Open http://127.0.0.1:8181 in your browser. The server re-scans every 30 seconds and pushes updates over Server-Sent Events, so you'll see changes without a hard refresh (Brain tab intentionally skips SSE re-render so the graph canvas does not reset).
 
 ## Code style
 
@@ -28,7 +28,9 @@ Open http://127.0.0.1:8080 in your browser. The server re-scans every 30 seconds
 - **Type hints where they aid readability.** Not a hard requirement, but helpful on function signatures.
 - **Docstrings explain *why*, not *what*.** The code already shows what.
 
-Component layout: `cli.py` (entry points) → `token_dashboard/scanner.py` (JSONL → SQLite) → `token_dashboard/db.py` (query helpers) → `token_dashboard/server.py` (HTTP + SSE + `/api/*` routes) → `web/` (vanilla JS UI). See [`CLAUDE.md`](CLAUDE.md) for the short architecture overview. To add a new API route: add a handler branch in `token_dashboard/server.py`, put the SQL in a helper in `token_dashboard/db.py`, and add a test under `tests/`.
+Component layout: `cli.py` (entry points) → `token_dashboard/scanner.py` + `grok_scanner.py` (JSONL → SQLite) → `token_dashboard/db.py` (query helpers) → `memory.py` / `workspace.py` (Brain + agentic layers) → `token_dashboard/server.py` (HTTP + SSE + `/api/*` routes) → `web/` (vanilla JS UI, including `rings.js` for the Brain graph). See [`CLAUDE.md`](CLAUDE.md) for the short architecture overview. To add a new API route: add a handler branch in `token_dashboard/server.py`, put the SQL in a helper in `token_dashboard/db.py` (or the relevant module), and add a test under `tests/`.
+
+CSV exports already exist for prompts and projects (`GET /api/prompts.csv`, `GET /api/projects.csv` via `db.prompts_as_csv` / `projects_as_csv`).
 
 ## Opening a pull request
 
@@ -42,14 +44,16 @@ Component layout: `cli.py` (entry points) → `token_dashboard/scanner.py` (JSON
 ## Ideas that would genuinely help
 
 - Broadening the Skills catalog scan to cover project-local `.claude/skills/` directories (closes the known limitation).
-- A CSV or JSON export of any route.
-- A session-filter UI (currently everything is all-time or implicit-"recent").
+- UI buttons / links for the existing CSV endpoints (and optional JSON export of other routes).
+- Richer session filters beyond Overview's range + source chips.
+- Mount `~/.grok` in the default `docker-compose.yml` (documented in the README today).
 - A GitHub Actions workflow that runs the tests on push.
 
 ## What we're not looking for
 
 - Adding a frontend framework. Vanilla JS is a feature.
 - Adding telemetry, analytics, or any outbound HTTP for user data. This dashboard is local-only and will stay that way.
+- Replacing `rings.js` with a heavy 3D engine for the Brain tab — the hand-rolled canvas is intentional.
 
 ## License
 

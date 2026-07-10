@@ -12,11 +12,12 @@ async function renderList(root) {
     <div class="card">
       <h2>Sessions</h2>
       <table>
-        <thead><tr><th>started</th><th>project</th><th class="num">turns</th><th class="num">tokens</th><th>session</th></tr></thead>
+        <thead><tr><th>started</th><th>agent</th><th>project</th><th class="num">turns</th><th class="num">tokens</th><th>session</th></tr></thead>
         <tbody>
           ${list.map(s => `
             <tr>
               <td class="mono">${fmt.ts(s.started)}</td>
+              <td><span class="badge ${fmt.sourceBadge(s.source)}">${fmt.htmlSafe(s.source || 'claude')}</span></td>
               <td title="${fmt.htmlSafe(s.project_slug)}">${fmt.htmlSafe(s.project_name || s.project_slug)}</td>
               <td class="num">${fmt.int(s.turns)}</td>
               <td class="num">${fmt.int(s.tokens)}</td>

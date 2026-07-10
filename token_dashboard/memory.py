@@ -1,9 +1,8 @@
-"""Brain: live reader for Claude Code project memory dirs + knowledge suggestions.
+"""Brain: live reader for the multi-agent Second Brain memory dirs + suggestions.
 
 Reads ~/.claude/projects/*/memory/*.md straight off disk on every request — the
-files are the source of truth (auto-loaded into Claude's context each session),
-so there is nothing to sync or invalidate. Suggestions reuse the tips engine's
-SQLite data to spot knowledge Claude keeps re-deriving instead of remembering.
+files are the shared source of truth for Claude, Grok, and other agents.
+Suggestions reuse SQLite tool data to spot knowledge agents keep re-deriving.
 """
 from __future__ import annotations
 
@@ -30,6 +29,7 @@ from .naming import (
 )
 from .pricing import cost_for
 from .tips import _is_dismissed, _key
+from .tool_aliases import READ_TOOLS, sql_in
 
 # Sentinel planted in the auto-learn extraction prompt (~/.claude/hooks/
 # auto-learn-prompt.md). Lets memory_roi isolate the background passes' own
@@ -54,16 +54,16 @@ read instead file files use used using one two new old via more most less via al
 
 
 def knowledge_suggestions(db_path: str, covered_by_slug: dict, labels: dict) -> List[dict]:
-    """Tips-style active loop: targets Claude keeps re-reading but never memorized.
+    """Tips-style active loop: targets agents keep re-reading but never memorized.
 
     covered_by_slug maps project_slug -> lowercase blob of that project's memory
     text; a target already mentioned there needs no new memory.
     """
     since = (datetime.utcnow() - timedelta(days=30)).isoformat()
-    sql = """
+    sql = f"""
       SELECT project_slug, target, COUNT(*) AS n, COUNT(DISTINCT session_id) AS sessions
         FROM tool_calls
-       WHERE tool_name IN ('Read','Grep') AND timestamp >= ?
+       WHERE tool_name {sql_in(READ_TOOLS)} AND timestamp >= ?
          AND target IS NOT NULL AND target != ''
        GROUP BY project_slug, target
        HAVING n >= 8 AND sessions >= 3
@@ -90,10 +90,10 @@ def knowledge_suggestions(db_path: str, covered_by_slug: dict, labels: dict) -> 
             "key": key,
             "project": label,
             "title": f"{base} read {row['n']}× across {row['sessions']} sessions",
-            "body": f"Claude re-read {target} {row['n']} times in {label} over the last 30 days "
-                    "but has no memory about it. One saved summary auto-loads in every future session.",
+            "body": f"Agents re-read {target} {row['n']} times in {label} over the last 30 days "
+                    "but the Second Brain has no memory about it. One saved summary helps every future session.",
             "prompt": f"Save a memory about {base} (what it does and the facts you keep re-reading "
-                      f"it for) AND add a ~5-line contract for it to this project's CLAUDE.md, "
+                      f"it for) AND add a ~5-line contract for it to this project's CLAUDE.md/AGENTS.md, "
                       f"so future sessions don't re-derive it. File: {target}",
         })
         if len(out) >= 10:
@@ -324,16 +324,16 @@ def memory_roi(db_path: str, covered_by_slug: dict, pricing: Optional[dict] = No
         "cache_trend": [],
     }
 
-    # --- Saved side: re-reads of already-memorized files (Read/Grep joined to
+    # --- Saved side: re-reads of already-memorized files (read tools joined to
     # their _tool_result for the byte cost). Count only files a memory covers.
-    reread_sql = """
+    reread_sql = f"""
       SELECT r.project_slug AS slug, r.target AS target,
              COUNT(*) AS reads,
              COALESCE(SUM(res.result_tokens), 0) AS tokens
         FROM tool_calls r
         JOIN tool_calls res
           ON res.tool_use_id = r.tool_use_id AND res.tool_name = '_tool_result'
-       WHERE r.tool_name IN ('Read', 'Grep') AND r.timestamp >= ?
+       WHERE r.tool_name {sql_in(READ_TOOLS)} AND r.timestamp >= ?
          AND r.target IS NOT NULL AND r.target != ''
        GROUP BY r.project_slug, r.target
     """

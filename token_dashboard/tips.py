@@ -226,11 +226,12 @@ def repeated_target_tips(db_path, today_iso: Optional[str] = None) -> List[dict]
                 "scope": row["target"],
             })
 
-        # Repeated file targets (Read/Edit/Write/Glob/Grep) — common waste pattern
-        for row in c.execute("""
+        # Repeated file targets (Claude + Grok tools) — common waste pattern
+        from .tool_aliases import FILE_TOOLS, sql_in
+        for row in c.execute(f"""
           SELECT target, COUNT(*) AS n
             FROM tool_calls
-           WHERE tool_name IN ('Read','Edit','Write','Glob','Grep')
+           WHERE tool_name {sql_in(FILE_TOOLS)}
              AND timestamp >= ?
            GROUP BY target HAVING n > 10
            ORDER BY n DESC LIMIT 10
@@ -241,7 +242,7 @@ def repeated_target_tips(db_path, today_iso: Optional[str] = None) -> List[dict]
             out.append({
                 "key": key, "category": "repeat-file",
                 "title": f"`{row['target']}` accessed {row['n']} times",
-                "body": f"This file/pattern was touched {row['n']} times in the past 7 days. Consider a memory or CLAUDE.md summary.",
+                "body": f"This file/pattern was touched {row['n']} times in the past 7 days. Consider a Second Brain memory or CLAUDE.md/AGENTS.md summary.",
                 "scope": row["target"],
             })
     return out

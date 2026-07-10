@@ -1,7 +1,5 @@
 // charts.js — themed ECharts wrappers, HUD styling ported from jarvis-ui's ChartWidget
 
-import { addHudCorners } from '/web/hud-background.js';
-
 const COMPACT = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 });
 const PALETTE = ['#27e0ff', '#ff4133', '#30d9b8', '#8b95a5', '#ffb53d', '#818cf8'];
 const CHART_TICK = 'rgba(180, 220, 255, 0.48)';
@@ -27,18 +25,48 @@ const Y_AXIS = {
   axisLabel: { color: CHART_TICK, fontFamily: MONO, fontSize: 10 },
 };
 
+function htmlEsc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+/** ECharts may pass a LinearGradient object as params.color for gradient bars. */
+function cssColor(c) {
+  if (typeof c === 'string') return c;
+  if (c && Array.isArray(c.colorStops) && c.colorStops.length) {
+    return c.colorStops[0].color || PALETTE[0];
+  }
+  return PALETTE[0];
+}
+
 function tooltipHtml(title, rows) {
-  const rowsHtml = rows.map(r => `
+  const rowsHtml = rows.map(r => {
+    const color = cssColor(r.color);
+    return `
     <div style="display:flex;align-items:center;gap:8px;font-size:11px;margin-top:5px">
-      <span style="width:6px;height:6px;border-radius:50%;background:${r.color};box-shadow:0 0 6px ${r.color}88"></span>
-      <span style="color:rgba(148,163,184,0.8)">${r.name}</span>
-      <span style="margin-left:auto;padding-left:12px;font-weight:700;font-variant-numeric:tabular-nums">${r.value}</span>
-    </div>`).join('');
+      <span style="width:6px;height:6px;border-radius:50%;background:${color};box-shadow:0 0 6px ${color}88"></span>
+      <span style="color:rgba(148,163,184,0.8)">${htmlEsc(r.name)}</span>
+      <span style="margin-left:auto;padding-left:12px;font-weight:700;font-variant-numeric:tabular-nums">${htmlEsc(r.value)}</span>
+    </div>`;
+  }).join('');
   return `
     <div style="font-family:${MONO}">
-      <div style="font-size:9px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:#22d3ee">${title}</div>
+      <div style="font-size:9px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:#22d3ee">${htmlEsc(title)}</div>
       ${rowsHtml}
     </div>`;
+}
+
+function axisTooltipFormatter(valueFn) {
+  const fmtVal = valueFn || (v => Number(v).toLocaleString());
+  return params => {
+    const list = Array.isArray(params) ? params : [params];
+    if (!list.length) return '';
+    return tooltipHtml(String(list[0].axisValueLabel ?? list[0].name ?? '').toUpperCase(), list.map(p => ({
+      color: p.color,
+      name: p.seriesName,
+      value: fmtVal(p.value),
+    })));
+  };
 }
 
 const TOOLTIP = {
@@ -48,15 +76,7 @@ const TOOLTIP = {
   borderWidth: 1,
   padding: [10, 12],
   extraCssText: 'box-shadow: 0 0 20px rgba(34, 211, 238, 0.15);',
-  formatter: params => {
-    const list = Array.isArray(params) ? params : [params];
-    if (!list.length) return '';
-    return tooltipHtml(String(list[0].axisValueLabel ?? list[0].name ?? '').toUpperCase(), list.map(p => ({
-      color: p.color,
-      name: p.seriesName,
-      value: Number(p.value).toLocaleString(),
-    })));
-  },
+  formatter: axisTooltipFormatter(),
 };
 
 const LEGEND_BASE = {
@@ -94,11 +114,10 @@ function mount(el) {
   const onResize = () => c.resize();
   window.addEventListener('resize', onResize);
   mounted.push({ c, onResize });
+  // Corners come from app.js's blanket addHudCorners pass (size 12 / inset 0).
+  // Don't call addHudCorners here — the existing-corner guard would make app.js a no-op.
   const card = el.closest('.card');
-  if (card) {
-    addHudCorners(card, { accent: 'cyan' });
-    card.classList.add('chart-card');
-  }
+  if (card) card.classList.add('chart-card');
   return c;
 }
 
@@ -113,7 +132,7 @@ export function lineChart(el, { x, series }) {
     series: series.map((s, i) => ({
       ...s, type: 'line', smooth: true, showSymbol: false,
       areaStyle: { opacity: 0.12 },
-      symbol: 'circle', symbolSize: 7, showSymbol: series.length <= 2,
+      symbol: 'circle', symbolSize: 7,
       itemStyle: { borderColor: '#030d15', borderWidth: 2 },
       lineStyle: { width: 2.5, ...glowLine(s.color || PALETTE[i % PALETTE.length]) },
     })),
@@ -145,15 +164,7 @@ export function stackedBarChart(el, { categories, series, formatter }) {
     tooltip: {
       ...TOOLTIP,
       axisPointer: { type: 'shadow' },
-      formatter: params => {
-        const list = Array.isArray(params) ? params : [params];
-        if (!list.length) return '';
-        return tooltipHtml(String(list[0].axisValueLabel ?? list[0].name ?? '').toUpperCase(), list.map(p => ({
-          color: p.color,
-          name: p.seriesName,
-          value: formatter ? formatter(p.value) : Number(p.value).toLocaleString(),
-        })));
-      },
+      formatter: axisTooltipFormatter(formatter),
     },
     legend: { ...LEGEND_BASE, top: 0, right: 0 },
     xAxis: {
@@ -184,15 +195,7 @@ export function groupedBarChart(el, { categories, series, formatter }) {
     tooltip: {
       ...TOOLTIP,
       axisPointer: { type: 'shadow' },
-      formatter: params => {
-        const list = Array.isArray(params) ? params : [params];
-        if (!list.length) return '';
-        return tooltipHtml(String(list[0].axisValueLabel ?? list[0].name ?? '').toUpperCase(), list.map(p => ({
-          color: p.color,
-          name: p.seriesName,
-          value: formatter ? formatter(p.value) : Number(p.value).toLocaleString(),
-        })));
-      },
+      formatter: axisTooltipFormatter(formatter),
     },
     legend: { ...LEGEND_BASE, top: 0, right: 0 },
     xAxis: {

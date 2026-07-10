@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from token_dashboard.db import init_db, default_db_path, overview_totals
-from token_dashboard.scanner import scan_dir
+from token_dashboard.scanner import scan_all
 from token_dashboard.tips import all_tips
 
 
@@ -24,6 +24,14 @@ def _projects(args) -> str:
     )
 
 
+def _grok_sessions(args) -> str:
+    return (
+        getattr(args, "grok_sessions_dir", None)
+        or os.environ.get("GROK_SESSIONS_DIR")
+        or str(Path.home() / ".grok" / "sessions")
+    )
+
+
 def _today_range():
     now = datetime.now(timezone.utc)
     start = datetime(now.year, now.month, now.day, tzinfo=timezone.utc).isoformat()
@@ -34,8 +42,12 @@ def _today_range():
 def cmd_scan(args):
     db = _db_path(args)
     init_db(db)
-    n = scan_dir(_projects(args), db)
+    n = scan_all(db, projects_dir=_projects(args), grok_sessions_dir=_grok_sessions(args))
+    by = n.get("by_source") or {}
     print(f"Token Dashboard: scanned {n['files']} files, {n['messages']} messages, {n['tools']} tool calls")
+    if by:
+        for src, sub in by.items():
+            print(f"  {src}: {sub.get('files', 0)} files, {sub.get('messages', 0)} msgs, {sub.get('tools', 0)} tools")
 
 
 def cmd_today(args):
@@ -74,24 +86,25 @@ def cmd_dashboard(args):
     db = _db_path(args)
     init_db(db)
     if not args.no_scan:
-        scan_dir(_projects(args), db)
+        scan_all(db, projects_dir=_projects(args), grok_sessions_dir=_grok_sessions(args))
     from token_dashboard.server import run
 
     host = os.environ.get("HOST", "127.0.0.1")
-    port = int(os.environ.get("PORT", "8080"))
+    port = int(os.environ.get("PORT", "8181"))
     url = f"http://{host}:{port}/"
     if not args.no_open:
         webbrowser.open(url)
     print(f"Token Dashboard listening on {url}")
-    run(host, port, db, _projects(args))
+    run(host, port, db, _projects(args), grok_sessions_dir=_grok_sessions(args))
 
 
 def main():
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--db", help="SQLite path (default ~/.claude/token-dashboard.db)")
-    common.add_argument("--projects-dir", help="JSONL root (default ~/.claude/projects)")
+    common.add_argument("--projects-dir", help="Claude JSONL root (default ~/.claude/projects)")
+    common.add_argument("--grok-sessions-dir", help="Grok sessions root (default ~/.grok/sessions)")
 
-    p = argparse.ArgumentParser(prog="token-dashboard", description="Local Claude Code usage dashboard", parents=[common])
+    p = argparse.ArgumentParser(prog="token-dashboard", description="Local multi-agent usage dashboard (Claude + Grok)", parents=[common])
     sub = p.add_subparsers(dest="cmd", required=True)
     sub.add_parser("scan",  parents=[common]).set_defaults(func=cmd_scan)
     sub.add_parser("today", parents=[common]).set_defaults(func=cmd_today)

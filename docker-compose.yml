@@ -3,7 +3,7 @@ services:
     build: .
     container_name: token-dashboard
     ports:
-      - "8080:8080"
+      - "8181:8181"
     volumes:
       # Map the .claude folder to allow reading transcripts and persisting the DB
       - ~/.claude:/data/claude
@@ -12,7 +12,7 @@ services:
       - ./web:/app/web
     environment:
       - HOST=0.0.0.0
-      - PORT=8080
+      - PORT=8181
       - CLAUDE_PROJECTS_DIR=/data/claude/projects
       - TOKEN_DASHBOARD_DB=/data/claude/token-dashboard.db
     restart: always

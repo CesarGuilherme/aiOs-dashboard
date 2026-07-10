@@ -8,7 +8,7 @@ WORKDIR /app
 COPY . .
 
 # Expose the default dashboard port
-EXPOSE 8080
+EXPOSE 8181
 
 # Start the dashboard in headless mode (no browser attempt)
 # We use 0.0.0.0 for HOST so it's reachable outside the container

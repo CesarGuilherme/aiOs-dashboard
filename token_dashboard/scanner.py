@@ -14,18 +14,18 @@ INSERT OR REPLACE INTO messages (
   uuid, parent_uuid, session_id, project_slug, cwd, git_branch, cc_version, entrypoint,
   type, is_sidechain, agent_id, timestamp, model, stop_reason, prompt_id, message_id,
   input_tokens, output_tokens, cache_read_tokens, cache_create_5m_tokens, cache_create_1h_tokens,
-  prompt_text, prompt_chars, tool_calls_json
+  prompt_text, prompt_chars, tool_calls_json, source
 ) VALUES (
   :uuid, :parent_uuid, :session_id, :project_slug, :cwd, :git_branch, :cc_version, :entrypoint,
   :type, :is_sidechain, :agent_id, :timestamp, :model, :stop_reason, :prompt_id, :message_id,
   :input_tokens, :output_tokens, :cache_read_tokens, :cache_create_5m_tokens, :cache_create_1h_tokens,
-  :prompt_text, :prompt_chars, :tool_calls_json
+  :prompt_text, :prompt_chars, :tool_calls_json, :source
 )
 """
 
 INSERT_TOOL = """
-INSERT INTO tool_calls (message_uuid, session_id, project_slug, tool_name, target, tool_use_id, result_tokens, is_error, timestamp)
-VALUES (:message_uuid, :session_id, :project_slug, :tool_name, :target, :tool_use_id, :result_tokens, :is_error, :timestamp)
+INSERT INTO tool_calls (message_uuid, session_id, project_slug, tool_name, target, tool_use_id, result_tokens, is_error, timestamp, source)
+VALUES (:message_uuid, :session_id, :project_slug, :tool_name, :target, :tool_use_id, :result_tokens, :is_error, :timestamp, :source)
 """
 
 
@@ -148,6 +148,7 @@ def parse_record(rec: dict, project_slug: str) -> Tuple[dict, List[dict]]:
         "prompt_text":  text,
         "prompt_chars": chars,
         "tool_calls_json": None,
+        "source":       "claude",
         **_usage(rec),
     }
     tools = _extract_tools(rec)
@@ -160,6 +161,7 @@ def parse_record(rec: dict, project_slug: str) -> Tuple[dict, List[dict]]:
         t["message_uuid"] = msg["uuid"]
         t["session_id"]   = msg["session_id"]
         t["project_slug"] = project_slug
+        t["source"]       = "claude"
     return msg, tools
 
 
@@ -269,11 +271,34 @@ def scan_dir(projects_root: Union[str, Path], db_path: Union[str, Path]) -> dict
             # st_size) so a partial line mid-flush is retried on the next
             # scan instead of being skipped over.
             conn.execute(
-                "INSERT OR REPLACE INTO files (path, mtime, bytes_read, scanned_at) VALUES (?, ?, ?, ?)",
-                (str(p), stat.st_mtime, sub["end_offset"], time.time()),
+                "INSERT OR REPLACE INTO files (path, mtime, bytes_read, scanned_at, source) VALUES (?, ?, ?, ?, ?)",
+                (str(p), stat.st_mtime, sub["end_offset"], time.time(), "claude"),
             )
             totals["messages"] += sub["messages"]
             totals["tools"]    += sub["tools"]
             totals["files"]    += 1
             conn.commit()  # commit per-file for better resilience on long scans / I/O hiccups
+    return totals
+
+
+def scan_all(db_path: Union[str, Path], *, projects_dir=None, grok_sessions_dir=None) -> dict:
+    """Scan every configured agent source into the same SQLite DB."""
+    import os
+    from pathlib import Path as P
+
+    from .grok_scanner import scan_grok_dir
+
+    claude_root = projects_dir or os.environ.get("CLAUDE_PROJECTS_DIR") or str(P.home() / ".claude" / "projects")
+    grok_root = grok_sessions_dir if grok_sessions_dir is not None else (
+        os.environ.get("GROK_SESSIONS_DIR") or str(P.home() / ".grok" / "sessions")
+    )
+    totals = {"messages": 0, "tools": 0, "files": 0, "by_source": {}}
+    c = scan_dir(claude_root, db_path)
+    totals["by_source"]["claude"] = c
+    for k in ("messages", "tools", "files"):
+        totals[k] += c.get(k, 0)
+    g = scan_grok_dir(grok_root, db_path)
+    totals["by_source"]["grok"] = g
+    for k in ("messages", "tools", "files"):
+        totals[k] += g.get(k, 0)
     return totals

@@ -1,0 +1,13 @@
+{
+  "info": {
+    "id": "sess-fixture-001",
+    "cwd": "/tmp/test-project"
+  },
+  "session_summary": "Fixture session",
+  "created_at": "2026-07-01T12:00:00Z",
+  "updated_at": "2026-07-01T13:00:00Z",
+  "num_messages": 151,
+  "current_model_id": "grok-4.5",
+  "generated_title": "Fixture",
+  "agent_name": "grok-build-plan"
+}
