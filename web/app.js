@@ -85,32 +85,53 @@ function setActiveTab(routeKey) {
 
 // A route's default export may return a cleanup fn (e.g. the Brain rings cancel
 // their animation loop + global listeners). Run it before swapping in the next view
-// — including on SSE-triggered re-renders — so nothing leaks or stacks up.
+// so nothing leaks or stacks up.
 let currentCleanup = null;
+// Module for the mounted route — used by soft SSE refresh (optional `refresh`).
+let currentMod = null;
+// Debounced SSE soft-refresh timer (cleared on full navigation).
+let scanTimer = null;
 
-// `preserveScroll` keeps the window scroll position across a re-render — used for
-// background (SSE) refreshes so live data updates don't snap the page to the top.
-// Navigation (hashchange / initial) leaves it false so switching tabs scrolls up.
-async function render({ preserveScroll = false } = {}) {
+function currentRouteKey() {
   const hash = location.hash.replace(/^#/, '') || '/overview';
   const path = hash.split('?')[0];
-  let key = path;
-  if (path.startsWith('/sessions/')) key = '/sessions';
+  if (path.startsWith('/sessions/')) return '/sessions';
+  return path;
+}
+
+// Full remount — initial load + hash navigation only. Never used for SSE.
+async function render() {
+  clearTimeout(scanTimer);
+  scanTimer = null;
+
+  const key = currentRouteKey();
   setActiveTab(key);
   const loader = ROUTES[key] || ROUTES['/overview'];
   const mod = await loader();
-  const y = preserveScroll ? window.scrollY : 0;
   if (currentCleanup) { try { currentCleanup(); } catch {} currentCleanup = null; }
+  currentMod = null;
   disposeAllCharts();
   $('#app').innerHTML = '';
   try {
     const cleanup = await mod.default($('#app'));
     $('#app').querySelectorAll('.card').forEach(card => addHudCorners(card, { accent: 'cyan', size: 12, inset: 0 }));
     if (typeof cleanup === 'function') currentCleanup = cleanup;
+    currentMod = mod;
   } catch (e) {
     $('#app').innerHTML = `<div class="card"><h2>Error</h2><pre>${fmt.htmlSafe(String(e.stack || e))}</pre></div>`;
   }
-  if (preserveScroll) window.scrollTo(0, y);
+}
+
+// Live scan updates: patch the current view in place. Routes without `refresh`
+// are a no-op (no flash). Brain is skipped so the rings canvas stays stable.
+async function softRefresh() {
+  if (location.hash.startsWith('#/brain')) return;
+  const mod = currentMod;
+  const root = $('#app');
+  if (!mod || typeof mod.refresh !== 'function' || !root) return;
+  try {
+    await mod.refresh(root);
+  } catch {}
 }
 
 async function firstRun() {
@@ -166,9 +187,8 @@ async function boot() {
     }
   });
 
-  // SSE diff stream — refresh live data silently: debounce bursts and keep the
-  // scroll position so the user is never yanked to the top mid-browse.
-  let scanTimer = null;
+  // SSE live updates — soft-refresh only (never full remount). Debounce bursts
+  // so a busy scan doesn't thrash the overview; clear on nav in render().
   try {
     const es = new EventSource('/api/stream');
     es.onmessage = ev => {
@@ -176,7 +196,7 @@ async function boot() {
         const evt = JSON.parse(ev.data);
         if (evt.type === 'scan' && !location.hash.startsWith('#/brain')) {
           clearTimeout(scanTimer);
-          scanTimer = setTimeout(() => render({ preserveScroll: true }), 1500);
+          scanTimer = setTimeout(() => softRefresh(), 1500);
         }
       } catch {}
     };

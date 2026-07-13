@@ -6,7 +6,14 @@ Guidance for Claude Code when working in this repository.
 
 **AI-Dashboard** (formerly Token Dashboard) — a local multi-agent dashboard for Claude Code + Grok CLI usage, costs (UI in **R$**), and the shared Second Brain. Reads Claude JSONL under `~/.claude/projects/` and Grok `updates.jsonl` under `~/.grok/sessions/`; durable memory remains the Claude-path Brain store used by all agents.
 
-Inspired by [phuryn/claude-usage](https://github.com/phuryn/claude-usage) but diverges in UI (vanilla JS + ECharts, JARVIS HUD theme, hash router, SSE refresh) and scope (expensive-prompt drill-down, skills view, tips engine, Second brain graph, streaming-snapshot dedup). See `docs/inspiration.md` for the original's feature set and known limitations.
+Inspired by [phuryn/claude-usage](https://github.com/phuryn/claude-usage) but diverges in UI (vanilla JS + ECharts, JARVIS HUD theme, hash router, SSE soft refresh) and scope (expensive-prompt drill-down, skills view, tips engine, Second brain graph, streaming-snapshot dedup). See `docs/inspiration.md` for the original's feature set and known limitations.
+
+### Session contract (do not re-derive)
+- **What it is:** local stdlib-only CLI + SQLite cache + vanilla `web/` SPA (hash router, no build). Serves on `127.0.0.1:8181`; UI costs in **R$** via `~/.claude/.usd_brl`.
+- **Data plane:** `scan_all` every 30s → Claude JSONL + Grok sessions → `~/.claude/token-dashboard.db`; APIs under `/api/*`; Brain from `~/.claude/projects/*/memory/` + global memory.
+- **Live UI:** SSE `/api/stream` may emit `scan`; client **soft-refreshes** only (Overview `export refresh`); full remount is **navigation-only**; Brain never auto-refreshes.
+- **Dedup:** assistant billing key is `(session_id, message_id)`, not top-level `uuid` (streaming snapshots).
+- **Touch carefully:** `web/app.js` router/SSE, `web/charts.js` instance reuse, `web/rings.js` teardown, `token_dashboard/server.py` `_scan_loop` — do not “fix” live updates by remounting tabs.
 
 ## Status
 
@@ -21,7 +28,7 @@ Working codebase. 99 Python unit tests (`python3 -m unittest discover tests`). E
 
 ### `web/rings.js` (Brain tab graph)
 
-Hand-rolled 2D-canvas 3D **synapse graph** for the Brain tab — no SVG, no charting lib, unrelated to `web/charts.js`/ECharts. One-shot Fruchterman-Reingold 3D layout on mount, then just rotates; color is a **rainbow hue per project/group**, deliberately independent of the app's `--accent` HUD palette — don't reharmonize it with chart colors. Shift+drag orbits (plain drag pans) — ctrl+drag was tried and rejected because ctrl+click opens Safari's context menu. Callers must invoke the returned `__teardown()` on unmount to stop the rAF loop/interval/ResizeObserver. SSE auto-refresh is skipped on the Brain tab so the graph does not reset mid-view.
+Hand-rolled 2D-canvas 3D **synapse graph** for the Brain tab — no SVG, no charting lib, unrelated to `web/charts.js`/ECharts. One-shot Fruchterman-Reingold 3D layout on mount, then just rotates; color is a **rainbow hue per project/group**, deliberately independent of the app's `--accent` HUD palette — don't reharmonize it with chart colors. Shift+drag orbits (plain drag pans) — ctrl+drag was tried and rejected because ctrl+click opens Safari's context menu. Callers must invoke the returned `__teardown()` on unmount to stop the rAF loop/interval/ResizeObserver. SSE soft-refresh is skipped on the Brain tab so the graph does not reset mid-view. Full remount happens only on hash navigation; Overview implements optional `export async function refresh(root)` for in-place live updates.
 
 ## Data source
 

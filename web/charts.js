@@ -97,8 +97,9 @@ function gradientBar(color) {
 }
 
 // Every chart instance + its window resize listener, so a route swap can
-// dispose them all — without this they leak on every re-render (nav or
-// SSE-triggered), including a phantom resize handler per chart.
+// dispose them all — without this they leak on full navigation re-renders,
+// including a phantom resize handler per chart. Soft SSE refresh reuses
+// instances via echarts.getInstanceByDom (see mount).
 const mounted = [];
 
 export function disposeAll() {
@@ -110,6 +111,10 @@ export function disposeAll() {
 }
 
 function mount(el) {
+  // Reuse existing instance on soft refresh so setOption updates in place.
+  const existing = echarts.getInstanceByDom(el);
+  if (existing) return existing;
+
   const c = echarts.init(el, null, { renderer: 'svg' });
   const onResize = () => c.resize();
   window.addEventListener('resize', onResize);
@@ -121,9 +126,15 @@ function mount(el) {
   return c;
 }
 
+/** Full replace of option data (soft refresh). */
+function apply(c, option) {
+  c.setOption(option, { notMerge: true });
+  return c;
+}
+
 export function lineChart(el, { x, series }) {
   const c = mount(el);
-  c.setOption({
+  return apply(c, {
     ...BASE,
     tooltip: TOOLTIP,
     legend: { ...LEGEND_BASE, top: 0, right: 0 },
@@ -137,13 +148,12 @@ export function lineChart(el, { x, series }) {
       lineStyle: { width: 2.5, ...glowLine(s.color || PALETTE[i % PALETTE.length]) },
     })),
   });
-  return c;
 }
 
 export function barChart(el, { categories, values, color }) {
   const c = mount(el);
   const barColor = color || PALETTE[0];
-  c.setOption({
+  return apply(c, {
     ...BASE,
     tooltip: { ...TOOLTIP, axisPointer: { type: 'shadow' } },
     xAxis: { ...X_AXIS, type: 'category', data: categories, axisLabel: { ...X_AXIS.axisLabel, interval: 0, rotate: categories.length > 5 ? 25 : 0 } },
@@ -154,12 +164,11 @@ export function barChart(el, { categories, values, color }) {
       barMaxWidth: 32,
     }],
   });
-  return c;
 }
 
 export function stackedBarChart(el, { categories, series, formatter }) {
   const c = mount(el);
-  c.setOption({
+  return apply(c, {
     ...BASE,
     tooltip: {
       ...TOOLTIP,
@@ -185,12 +194,11 @@ export function stackedBarChart(el, { categories, series, formatter }) {
       };
     }),
   });
-  return c;
 }
 
 export function groupedBarChart(el, { categories, series, formatter }) {
   const c = mount(el);
-  c.setOption({
+  return apply(c, {
     ...BASE,
     tooltip: {
       ...TOOLTIP,
@@ -215,13 +223,12 @@ export function groupedBarChart(el, { categories, series, formatter }) {
       };
     }),
   });
-  return c;
 }
 
 export function donutChart(el, data) {
   const c = mount(el);
   const total = data.reduce((sum, d) => sum + (Number(d.value) || 0), 0);
-  c.setOption({
+  return apply(c, {
     color: PALETTE,
     tooltip: {
       trigger: 'item',
@@ -236,7 +243,7 @@ export function donutChart(el, data) {
       ...LEGEND_BASE, orient: 'vertical', right: 4, top: 'middle', itemGap: 14,
       formatter: name => {
         const d = data.find(x => x.name === name);
-        const pct = total ? ((d.value / total) * 100).toFixed(1) : '0.0';
+        const pct = total && d ? ((d.value / total) * 100).toFixed(1) : '0.0';
         return `${name.toUpperCase()}  ${pct}%`;
       },
     },
@@ -264,5 +271,4 @@ export function donutChart(el, data) {
       ],
     },
   });
-  return c;
 }

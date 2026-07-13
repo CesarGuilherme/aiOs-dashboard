@@ -97,7 +97,7 @@ The command:
 2. Starts a local server at http://127.0.0.1:8181.
 3. Opens your default browser to that URL.
 
-Leave it running; it re-scans every 30 seconds and pushes updates live (Overview and other tabs re-render; the Brain graph is left alone mid-view so the canvas doesn't reset). Stop with `Ctrl+C`.
+Leave it running; it re-scans every 30 seconds and pushes updates live (Overview soft-refreshes KPIs/charts in place; other tabs without a soft-refresh handler stay put; the Brain graph is never auto-refreshed so the canvas doesn't reset). Stop with `Ctrl+C`.
 
 ## Where the data comes from
 
@@ -153,8 +153,8 @@ Change the port: `PORT=9000 python3 cli.py dashboard`.
 
 The dashboard is a single page with a hash-router tab bar across the top. Each tab is backed by its own JSON API under `/api/`:
 
-- **Overview** — input/output/cache tokens, sessions, turns, estimated cost on your chosen plan (R$), daily work and cache-read charts, tokens-by-project, token share by model, top tools by call count, and recent sessions. Filter with range tabs (`7d` / `30d` / `90d` / `all`) and source chips (`all` / `claude` / `grok`). Landing tab; also shows a Second Brain knowledge strip and a "What do these numbers mean?" panel.
-- **Brain** — your persistent memory across agents. Interactive **Second brain** synapse graph (`web/rings.js`): every memory node, color by project/group, linked via `[[wikilinks]]`. Shift+drag orbits, plain drag pans, scroll zooms; `/` focuses search; click a node for Fly-to / detail. Sidebar lists Skills, Routines, and Applications from `/api/workspace`. Below the graph: Memory ROI (saved vs extraction cost), cache hit-rate trend, learning timeline, auto-generated suggestions, effectiveness/prune candidates, and per-project memory browsers. SSE refresh skips this tab so the canvas doesn't reset mid-view.
+- **Overview** — input/output/cache tokens, sessions, turns, estimated cost on your chosen plan (R$), daily work and cache-read charts, tokens-by-project, token share by model, top tools by call count, and recent sessions. Filter with range tabs (`7d` / `30d` / `90d` / `all`) and source chips (`all` / `claude` / `grok`). Landing tab; also shows a Second Brain knowledge strip and a "What do these numbers mean?" panel. Live SSE updates patch this tab in place (no full remount).
+- **Brain** — your persistent memory across agents. Interactive **Second brain** synapse graph (`web/rings.js`): every memory node, color by project/group, linked via `[[wikilinks]]`. Shift+drag orbits, plain drag pans, scroll zooms; `/` focuses search; click a node for Fly-to / detail. Sidebar lists Skills, Routines, and Applications from `/api/workspace`. Below the graph: Memory ROI (saved vs extraction cost), cache hit-rate trend, learning timeline, auto-generated suggestions, effectiveness/prune candidates, and per-project memory browsers. SSE soft-refresh skips this tab so the canvas doesn't reset mid-view.
 - **Prompts** — your most expensive user prompts ranked by tokens. Click any row to see the assistant response, tool calls made, and the size of each tool result.
 - **Sessions** — turn-by-turn view of any single session, with per-turn tokens and tool calls (source badge for Claude vs Grok).
 - **Projects** — per-project comparison: tokens, session counts, and which files were touched most.
@@ -205,7 +205,7 @@ Nothing leaves your machine. No telemetry. No remote calls for your data. The br
 
 ## Tech stack
 
-Python 3 (stdlib only) for the CLI, scanners, and HTTP server. SQLite for the local cache. Vanilla JS + ECharts for charts, hand-rolled `rings.js` canvas for the Brain graph, HUD background lattice — no build step. Dark JARVIS theme, hash-based router, server-sent events for live refresh.
+Python 3 (stdlib only) for the CLI, scanners, and HTTP server. SQLite for the local cache. Vanilla JS + ECharts for charts, hand-rolled `rings.js` canvas for the Brain graph, HUD background lattice — no build step. Dark JARVIS theme, hash-based router, server-sent events for soft live updates (in-place Overview patch; full remount only on navigation).
 
 Data flow: `cli.py` → `scan_all` → Claude `scanner.py` + Grok `grok_scanner.py` → SQLite; `token_dashboard/server.py` exposes `/api/*` JSON routes (including `/api/brain`, `/api/workspace`, `/api/stream`) and serves `web/`.
 

@@ -49,12 +49,95 @@ function withParams(url, { since, source }) {
   return url + (url.includes('?') ? '&' : '?') + q.join('&');
 }
 
-export default async function (root) {
+function planSubtitle() {
+  if (!state.pricing || state.plan === 'api') return '';
+  const p = state.pricing.plans[state.plan];
+  if (!p || !p.monthly) return '';
+  return `<div class="sub">pay ${fmt.usd(p.monthly)}/mo on ${fmt.htmlSafe(p.label)}</div>`;
+}
+
+function sessionsRowsHtml(sessions) {
+  return sessions.map(s => `
+    <tr>
+      <td class="mono">${fmt.ts(s.started)}</td>
+      <td><span class="badge ${fmt.sourceBadge(s.source)}">${fmt.htmlSafe(s.source || 'claude')}</span></td>
+      <td><a href="#/sessions/${encodeURIComponent(s.session_id)}">${fmt.htmlSafe(s.project_name || s.project_slug)}</a></td>
+      <td class="num">${fmt.compact(s.tokens)}</td>
+    </tr>`).join('') || '<tr><td colspan="4" class="muted">no sessions in this range</td></tr>';
+}
+
+function knowledgeHtml(brain) {
+  const projs = brain.projects || [];
+  const memories = projs.reduce((n, p) => n + (p.entries?.length || 0), 0);
+  const links = (brain.links || []).length;
+  const suggestions = (brain.suggestions || []).length;
+  const neverUsed = (brain.effectiveness?.prune_candidates || []).length;
+  const stat = (v, label, warn = false) =>
+    `<span style="margin-right:18px"><b style="font-size:16px;color:${warn && v ? '#FFB454' : 'inherit'}">${v}</b> ${label}</span>`;
+  return stat(memories, 'memories') +
+    stat(projs.length, 'projects') +
+    stat(links, 'wikilinks') +
+    stat(suggestions, 'suggested', true) +
+    stat(neverUsed, 'injected but never used', true);
+}
+
+function byModelData(byModel) {
+  return byModel.map(m => ({
+    name: fmt.modelShort(m.model) || 'unknown',
+    value: (m.input_tokens || 0) + (m.output_tokens || 0)
+         + (m.cache_create_5m_tokens || 0) + (m.cache_create_1h_tokens || 0),
+  })).filter(d => d.value > 0);
+}
+
+function paintCharts({ daily, byModel, projects, tools }) {
+  const billable = document.getElementById('ch-daily-billable');
+  const cache = document.getElementById('ch-daily-cache');
+  const model = document.getElementById('ch-model');
+  const projEl = document.getElementById('ch-projects');
+  const toolsEl = document.getElementById('ch-tools');
+  if (!billable || !cache || !model || !projEl || !toolsEl) return;
+
+  stackedBarChart(billable, {
+    categories: daily.map(d => d.day),
+    series: [
+      { name: 'input',        values: daily.map(d => d.input_tokens),        color: '#27E0FF' },
+      { name: 'output',       values: daily.map(d => d.output_tokens),       color: '#8B7CFF' },
+      { name: 'cache create', values: daily.map(d => d.cache_create_tokens), color: '#FFB53D' },
+    ],
+  });
+  stackedBarChart(cache, {
+    categories: daily.map(d => d.day),
+    series: [
+      { name: 'cache read', values: daily.map(d => d.cache_read_tokens), color: '#2FE6B8' },
+    ],
+  });
+  donutChart(model, byModelData(byModel));
+
+  const topProjects = projects.slice(0, 8);
+  groupedBarChart(projEl, {
+    categories: topProjects.map(p => {
+      const name = p.project_name || p.project_slug;
+      return name.length > 20 ? name.slice(0, 19) + '…' : name;
+    }),
+    series: [
+      { name: 'input',  values: topProjects.map(p => p.input_tokens  || 0), color: '#27E0FF' },
+      { name: 'output', values: topProjects.map(p => p.output_tokens || 0), color: '#8B7CFF' },
+    ],
+  });
+
+  const topTools = tools.slice(0, 8);
+  barChart(toolsEl, {
+    categories: topTools.map(t => t.tool_name),
+    values: topTools.map(t => t.calls),
+    color: '#8B7CFF',
+  });
+}
+
+async function fetchOverviewBundle() {
   const range = readRange();
   const source = readSource();
   const since = sinceIso(range);
   const q = { since, source };
-
   const [totals, projects, sessions, tools, daily, byModel] = await Promise.all([
     api(withParams('/api/overview', q)),
     api(withParams('/api/projects', q)),
@@ -63,8 +146,80 @@ export default async function (root) {
     api(withParams('/api/daily', q)),
     api(withParams('/api/by-model', q)),
   ]);
-
   if (totals.usd_brl_rate) setUsdBrlRate(totals.usd_brl_rate);
+  return { range, source, totals, projects, sessions, tools, daily, byModel };
+}
+
+function patchLiveData(root, data) {
+  const { range, source, totals, projects, sessions, tools, daily, byModel } = data;
+  const cacheCreate =
+    (totals.cache_create_5m_tokens || 0) +
+    (totals.cache_create_1h_tokens || 0);
+
+  const meta = root.querySelector('.flex > .muted');
+  if (meta) {
+    meta.textContent =
+      (range.days ? `last ${range.days} days` : 'all time') +
+      (totals.usd_brl_rate ? ` · USD→BRL ${Number(totals.usd_brl_rate).toFixed(2).replace('.', ',')}` : '');
+  }
+
+  // Source chip labels (keep selection; only refresh counts meta)
+  const sources = totals.by_source || [];
+  const byKey = Object.fromEntries(sources.map(s => [s.source, s]));
+  root.querySelectorAll('.source-chip').forEach(btn => {
+    const key = btn.dataset.source;
+    if (key === 'all') {
+      btn.textContent = 'all';
+      return;
+    }
+    const s = byKey[key];
+    if (!s) return;
+    btn.innerHTML =
+      `${fmt.htmlSafe(s.source)} · ${fmt.int(s.sessions)} sess · ${fmt.compact(s.billable_tokens)} tok`;
+  });
+
+  const kpis = root.querySelectorAll('.row.cols-7 .card.kpi');
+  const setKpi = (i, compactVal, fullVal) => {
+    const card = kpis[i];
+    if (!card) return;
+    const value = card.querySelector('.value');
+    if (!value) return;
+    value.textContent = compactVal;
+    value.title = fullVal;
+  };
+  setKpi(0, fmt.int(totals.sessions), fmt.int(totals.sessions));
+  setKpi(1, fmt.int(totals.turns), fmt.int(totals.turns));
+  setKpi(2, fmt.compact(totals.input_tokens), fmt.int(totals.input_tokens) + ' tokens');
+  setKpi(3, fmt.compact(totals.output_tokens), fmt.int(totals.output_tokens) + ' tokens');
+  setKpi(4, fmt.compact(totals.cache_read_tokens), fmt.int(totals.cache_read_tokens) + ' tokens');
+  setKpi(5, fmt.compact(cacheCreate), fmt.int(cacheCreate) + ' tokens');
+  setKpi(6, fmt.usd(totals.cost_usd), fmt.usd(totals.cost_usd));
+
+  const tbody = root.querySelector('#recent-sessions-body');
+  if (tbody) tbody.innerHTML = sessionsRowsHtml(sessions);
+
+  paintCharts({ daily, byModel, projects, tools });
+
+  // knowledge strip (async, non-blocking)
+  api('/api/brain').then(brain => {
+    const el = root.querySelector('#knowledge-stats') || document.getElementById('knowledge-stats');
+    if (el) el.innerHTML = knowledgeHtml(brain);
+  }).catch(() => {
+    const el = root.querySelector('#knowledge-stats') || document.getElementById('knowledge-stats');
+    if (el) el.textContent = 'brain data unavailable';
+  });
+}
+
+/** Soft SSE refresh — patch data in place; no full remount. */
+export async function refresh(root) {
+  if (!root?.querySelector?.('#ch-daily-billable')) return;
+  const data = await fetchOverviewBundle();
+  patchLiveData(root, data);
+}
+
+export default async function (root) {
+  const data = await fetchOverviewBundle();
+  const { range, source, totals, projects, sessions } = data;
 
   const cacheCreate =
     (totals.cache_create_5m_tokens || 0) +
@@ -109,7 +264,7 @@ export default async function (root) {
 
   const filterHint = source === 'all'
     ? ''
-    : `<span class="muted" style="font-size:12px">showing <b>${fmt.htmlSafe(source)}</b> only</span>`;
+    : `<span class="muted filter-hint" style="font-size:12px">showing <b>${fmt.htmlSafe(source)}</b> only</span>`;
 
   root.innerHTML = `
     <div class="flex" style="margin-bottom:14px">
@@ -190,14 +345,8 @@ export default async function (root) {
         <h3 style="display:flex;align-items:center"><span>Recent sessions</span><span class="spacer"></span><a href="#/sessions" style="font-weight:400;font-size:12px">all →</a></h3>
         <table>
           <thead><tr><th>started</th><th>agent</th><th>project</th><th class="num">tokens</th></tr></thead>
-          <tbody>
-            ${sessions.map(s => `
-              <tr>
-                <td class="mono">${fmt.ts(s.started)}</td>
-                <td><span class="badge ${fmt.sourceBadge(s.source)}">${fmt.htmlSafe(s.source || 'claude')}</span></td>
-                <td><a href="#/sessions/${encodeURIComponent(s.session_id)}">${fmt.htmlSafe(s.project_name || s.project_slug)}</a></td>
-                <td class="num">${fmt.compact(s.tokens)}</td>
-              </tr>`).join('') || '<tr><td colspan="4" class="muted">no sessions in this range</td></tr>'}
+          <tbody id="recent-sessions-body">
+            ${sessionsRowsHtml(sessions)}
           </tbody>
         </table>
       </div>
@@ -218,80 +367,15 @@ export default async function (root) {
     });
   });
 
-  // Your daily work — billable tokens (input + output + cache create)
-  stackedBarChart(document.getElementById('ch-daily-billable'), {
-    categories: daily.map(d => d.day),
-    series: [
-      { name: 'input',        values: daily.map(d => d.input_tokens),        color: '#27E0FF' },
-      { name: 'output',       values: daily.map(d => d.output_tokens),       color: '#8B7CFF' },
-      { name: 'cache create', values: daily.map(d => d.cache_create_tokens), color: '#FFB53D' },
-    ],
-  });
-
-  // Daily cache reads (separate — scale is 100× larger)
-  stackedBarChart(document.getElementById('ch-daily-cache'), {
-    categories: daily.map(d => d.day),
-    series: [
-      { name: 'cache read', values: daily.map(d => d.cache_read_tokens), color: '#2FE6B8' },
-    ],
-  });
-
-  // by-model doughnut
-  donutChart(document.getElementById('ch-model'),
-    byModel.map(m => ({
-      name: fmt.modelShort(m.model) || 'unknown',
-      value: (m.input_tokens || 0) + (m.output_tokens || 0)
-           + (m.cache_create_5m_tokens || 0) + (m.cache_create_1h_tokens || 0),
-    })).filter(d => d.value > 0),
-  );
-
-  // tokens by project — input vs output
-  const topProjects = projects.slice(0, 8);
-  groupedBarChart(document.getElementById('ch-projects'), {
-    categories: topProjects.map(p => {
-      const name = p.project_name || p.project_slug;
-      return name.length > 20 ? name.slice(0, 19) + '…' : name;
-    }),
-    series: [
-      { name: 'input',  values: topProjects.map(p => p.input_tokens  || 0), color: '#27E0FF' },
-      { name: 'output', values: topProjects.map(p => p.output_tokens || 0), color: '#8B7CFF' },
-    ],
-  });
-
-  // top tools
-  const topTools = tools.slice(0, 8);
-  barChart(document.getElementById('ch-tools'), {
-    categories: topTools.map(t => t.tool_name),
-    values: topTools.map(t => t.calls),
-    color: '#8B7CFF',
-  });
+  paintCharts(data);
 
   // knowledge card — fetched after first paint so it never delays the overview
   api('/api/brain').then(brain => {
     const el = document.getElementById('knowledge-stats');
     if (!el) return; // user already navigated away
-    const projs = brain.projects || [];
-    const memories = projs.reduce((n, p) => n + (p.entries?.length || 0), 0);
-    const links = (brain.links || []).length;
-    const suggestions = (brain.suggestions || []).length;
-    const neverUsed = (brain.effectiveness?.prune_candidates || []).length;
-    const stat = (v, label, warn = false) =>
-      `<span style="margin-right:18px"><b style="font-size:16px;color:${warn && v ? '#FFB454' : 'inherit'}">${v}</b> ${label}</span>`;
-    el.innerHTML =
-      stat(memories, 'memories') +
-      stat(projs.length, 'projects') +
-      stat(links, 'wikilinks') +
-      stat(suggestions, 'suggested', true) +
-      stat(neverUsed, 'injected but never used', true);
+    el.innerHTML = knowledgeHtml(brain);
   }).catch(() => {
     const el = document.getElementById('knowledge-stats');
     if (el) el.textContent = 'brain data unavailable';
   });
-}
-
-function planSubtitle() {
-  if (!state.pricing || state.plan === 'api') return '';
-  const p = state.pricing.plans[state.plan];
-  if (!p || !p.monthly) return '';
-  return `<div class="sub">pay ${fmt.usd(p.monthly)}/mo on ${fmt.htmlSafe(p.label)}</div>`;
 }
