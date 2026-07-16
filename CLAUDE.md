@@ -26,6 +26,10 @@ Working codebase. 99 Python unit tests (`python3 -m unittest discover tests`). E
 - Brain extras: `memory.py` / `memory_parsing.py` → `/api/brain`; `workspace.py` → `/api/workspace` + `POST /api/open`
 - `web/` is vanilla JS, no build step — hash router + ECharts + `rings.js` + HUD background; costs via `fmt.usd` → BRL (`~/.claude/.usd_brl`)
 
+### `token_dashboard/server.py` (HTTP process)
+
+Stdlib-only `ThreadingHTTPServer` + handler factory (`build_handler` closes over `db_path` / `projects_dir` / `grok_sessions_dir`) — static `web/`, JSON `/api/*`, SSE `/api/stream`. Daemon `_scan_loop` runs `scan_all` every **30s** and puts on global `EVENTS` only when `n["messages"] > 0`; stream clients get `data: {type:scan…}` or `: ping` keepalives — client **soft-refreshes**, never full remount. Pricing hot-reloads from `pricing.json` mtime; costs computed in-handler via `cost_for` + FX. POSTs are tiny JSON only (`MAX_POST_BYTES`); `/api/open` is gated (`Content-Type`, `allowed_open_path`, exists). Do not change SSE semantics to force remount. Durable notes: `~/.claude/projects/-Volumes-SSD-CESAR-Developer-aiOs-dashboard/memory/server_py_contract.md`.
+
 ### `web/rings.js` (Brain tab graph)
 
 Hand-rolled 2D-canvas 3D **synapse graph** for the Brain tab — no SVG, no charting lib, unrelated to `web/charts.js`/ECharts. One-shot Fruchterman-Reingold 3D layout on mount, then just rotates; color is a **rainbow hue per project/group**, deliberately independent of the app's `--accent` HUD palette — don't reharmonize it with chart colors. Shift+drag orbits (plain drag pans) — ctrl+drag was tried and rejected because ctrl+click opens Safari's context menu. Callers must invoke the returned `__teardown()` on unmount to stop the rAF loop/interval/ResizeObserver. SSE soft-refresh is skipped on the Brain tab so the graph does not reset mid-view. Full remount happens only on hash navigation; Overview implements optional `export async function refresh(root)` for in-place live updates.

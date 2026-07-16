@@ -140,15 +140,28 @@ export function ringsCanvas(el, { nodes, links, onNodeClick, onNodeHover }) {
     rotZ += (tRotZ - rotZ) * 0.018;
   }
 
-  function projectAll() {
+  // Perspective params + safe depth scale. Without a floor on the denominator,
+  // high zoom (or flyTo z=3) + a node with large negative z3d makes
+  // (perspective + z*base + cam) ≤ 0 → negative/∞ scale → createRadialGradient
+  // throws and the rAF loop dies until full page reload.
+  function camParams() {
     const w = W(), h = H();
     const perspective = Math.max(w, h) * 0.72;
     const cameraDistance = Math.max(w, h) * 0.83;
     const base = Math.min(w, h) / (2 * WORLD) * 1.7 * zoom;
+    return { w, h, perspective, cameraDistance, base, minDenom: Math.max(perspective * 0.08, 8) };
+  }
+  function depthScale(z3d, perspective, cameraDistance, base, minDenom) {
+    const denom = perspective + z3d * base + cameraDistance;
+    return perspective / Math.max(denom, minDenom);
+  }
+
+  function projectAll() {
+    const { w, h, perspective, cameraDistance, base, minDenom } = camParams();
     let smin = Infinity, smax = -Infinity;
     for (const n of all) {
-      const s = perspective / (perspective + n.z3d * base + cameraDistance);
-      n.scale = s * base;
+      const s = depthScale(n.z3d, perspective, cameraDistance, base, minDenom);
+      n.scale = s * base;  // always finite/positive; draw paths clamp radii separately
       n.x = w / 2 + panX + n.x3d * n.scale;
       n.y = h / 2 + panY + n.y3d * n.scale;
       n._s = s;
@@ -180,12 +193,13 @@ export function ringsCanvas(el, { nodes, links, onNodeClick, onNodeHover }) {
   function drawNode(c, n, glow) {
     const [r, g, b] = nodeRGB(n);
     const flicker = 0.85 + Math.sin(n.pulse) * 0.15;
-    const rr = n.r * n.scale * 1.6 * flicker;
+    // Radii must stay > 0 — createRadialGradient throws on negative/NaN and kills the loop.
+    const rr = Math.max(0.5, Math.min(200, n.r * Math.max(0, n.scale) * 1.6 * flicker));
     const gr = c.createRadialGradient(n.x - rr * 0.3, n.y - rr * 0.3, rr * 0.1, n.x, n.y, rr);
     gr.addColorStop(0, `rgba(${Math.min(255, r + 70)},${Math.min(255, g + 70)},${Math.min(255, b + 70)},1)`);
     gr.addColorStop(1, `rgba(${r},${g},${b},0.85)`);
     c.shadowColor = `rgb(${r},${g},${b})`;
-    c.shadowBlur = glow ? rr * 2.2 : rr * 0.9;
+    c.shadowBlur = Math.min(80, glow ? rr * 2.2 : rr * 0.9);
     somaPath(c, n, rr);
     c.fillStyle = gr; c.fill();
     c.shadowBlur = 0;
@@ -239,7 +253,8 @@ export function ringsCanvas(el, { nodes, links, onNodeClick, onNodeHover }) {
     ctx.globalCompositeOperation = 'lighter';
 
     // central halo (arc-reactor heart)
-    const halo = ctx.createRadialGradient(w / 2 + panX, h / 2 + panY, 0, w / 2 + panX, h / 2 + panY, Math.min(w, h) * 0.55 * zoom);
+    const haloR = Math.max(1, Math.min(w, h) * 0.55 * zoom);
+    const halo = ctx.createRadialGradient(w / 2 + panX, h / 2 + panY, 0, w / 2 + panX, h / 2 + panY, haloR);
     halo.addColorStop(0, 'rgba(120,90,200,0.10)');
     halo.addColorStop(0.5, 'rgba(90,70,160,0.04)');
     halo.addColorStop(1, 'rgba(0,0,0,0)');
@@ -260,7 +275,7 @@ export function ringsCanvas(el, { nodes, links, onNodeClick, onNodeHover }) {
       ctx.shadowBlur = 0;
       if (t > 0.85) {
         const fe = (t - 0.85) / 0.15;
-        const rr = b.r * b.scale * 1.6 * (1 + fe * 1.8);
+        const rr = Math.max(0.5, Math.min(200, b.r * Math.max(0, b.scale) * 1.6 * (1 + fe * 1.8)));
         const gr = ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, rr);
         gr.addColorStop(0, `rgba(255,255,255,${0.45 * (1 - fe)})`);
         gr.addColorStop(1, 'rgba(255,255,255,0)');
@@ -344,12 +359,10 @@ export function ringsCanvas(el, { nodes, links, onNodeClick, onNodeHover }) {
       const n = fly.node;
       // target pan recomputed each frame (node keeps rotating)
       zoom = fly.z0 + (fly.z1 - fly.z0) * e;
-      const base = Math.min(W(), H()) / (2 * WORLD) * 1.7 * zoom;
-      const perspective = Math.max(W(), H()) * 0.72;
-      const cameraDistance = Math.max(W(), H()) * 0.83;
-      const s = perspective / (perspective + n.z3d * base + cameraDistance) * base;
-      panX += (-n.x3d * s - panX) * 0.14;
-      panY += (-n.y3d * s - panY) * 0.14;
+      const { perspective, cameraDistance, base, minDenom } = camParams();
+      const scale = depthScale(n.z3d, perspective, cameraDistance, base, minDenom) * base;
+      panX += (-n.x3d * scale - panX) * 0.14;
+      panY += (-n.y3d * scale - panY) * 0.14;
       if (fly.t >= 1) fly = null;
     }
     projectAll();
@@ -368,7 +381,7 @@ export function ringsCanvas(el, { nodes, links, onNodeClick, onNodeHover }) {
     if (dragging) {
       const dx = e.clientX - sx, dy = e.clientY - sy;
       if (rotating) rotateAll(dy * 0.005, dx * 0.005, 0);   // shift + drag = orbit
-      else { panX += dx; panY += dy; }
+      else { fly = null; panX += dx; panY += dy; }
       if (Math.abs(dx) + Math.abs(dy) > 3) moved = true;
       sx = e.clientX; sy = e.clientY; return;
     }
@@ -379,7 +392,11 @@ export function ringsCanvas(el, { nodes, links, onNodeClick, onNodeHover }) {
     if (dragging && !moved && !rotating && hovered) onNodeClick?.(hovered);
     dragging = false; rotating = false; canvas.style.cursor = hovered ? 'pointer' : 'grab';
   };
-  const onWheel = e => { e.preventDefault(); zoom = Math.min(12, Math.max(0.3, zoom * (e.deltaY < 0 ? 1.1 : 0.9))); };
+  const onWheel = e => {
+    e.preventDefault();
+    fly = null;  // user zoom cancels flyTo so the two don't fight
+    zoom = Math.min(8, Math.max(0.3, zoom * (e.deltaY < 0 ? 1.1 : 0.9)));
+  };
   canvas.addEventListener('mousedown', onDown);
   canvas.addEventListener('mousemove', onMove);
   window.addEventListener('mouseup', onUp);
