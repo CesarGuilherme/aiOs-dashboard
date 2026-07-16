@@ -177,6 +177,7 @@ td.mono { font-family: var(--mono); color: var(--muted); }
   font-family: var(--mono); font-weight: 500;
 }
 .badge.opus    { color: var(--accent-2); border-color: rgba(139,124,255,0.3); background: rgba(139,124,255,0.08); }
+.badge.fable   { color: #ff6b9d;         border-color: rgba(255,107,157,0.35); background: rgba(255,107,157,0.10); }
 .badge.sonnet  { color: var(--accent);   border-color: rgba(39,224,255,0.3); background: rgba(39,224,255,0.08); }
 .badge.haiku   { color: var(--good);     border-color: rgba(47,230,184,0.3); background: rgba(47,230,184,0.08); }
 .badge.grok    { color: #ffb53d;         border-color: rgba(255,181,61,0.35); background: rgba(255,181,61,0.10); }
@@ -635,6 +636,7 @@ html.hud-theme body::before {
 }
 
 .hud-theme .badge.opus    { color: var(--hud-gold); border-color: rgba(255,181,61,0.35); background: rgba(255,181,61,0.08); }
+.hud-theme .badge.fable   { color: #ff6b9d;         border-color: rgba(255,107,157,0.4);  background: rgba(255,107,157,0.12); }
 .hud-theme .badge.sonnet  { color: var(--accent);   border-color: rgba(39,224,255,0.35); background: rgba(39,224,255,0.08); }
 .hud-theme .badge.haiku   { color: var(--good);     border-color: rgba(48,217,184,0.35); background: rgba(48,217,184,0.08); }
 .hud-theme .badge.grok    { color: var(--hud-gold); border-color: rgba(255,181,61,0.4);  background: rgba(255,181,61,0.12); }

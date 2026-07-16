@@ -16,6 +16,8 @@ def _tier_from_name(model: str) -> Optional[str]:
     m = (model or "").lower()
     if m.startswith("grok") or "grok" in m:
         return "grok"
+    if "fable" in m or "mythos" in m:
+        return "fable"
     for tier in ("opus", "sonnet", "haiku"):
         if tier in m:
             return tier

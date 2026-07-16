@@ -33,6 +33,22 @@ EVENTS: "queue.Queue[dict]" = queue.Queue()
 MAX_POST_BYTES = 1_000_000  # 1 MB — we only accept tiny JSON bodies (plan, tip key)
 MAX_LIMIT = 1000
 
+# Reload pricing.json when the file changes (Settings says "reload the page after editing").
+_pricing_mtime: float | None = None
+_pricing_data: dict | None = None
+
+
+def _current_pricing() -> dict:
+    global _pricing_mtime, _pricing_data
+    try:
+        mtime = PRICING_JSON.stat().st_mtime
+    except OSError:
+        mtime = None
+    if _pricing_data is None or mtime != _pricing_mtime:
+        _pricing_data = load_pricing(PRICING_JSON)
+        _pricing_mtime = mtime
+    return _pricing_data
+
 
 def _send_json(handler, obj, status: int = 200) -> None:
     body = json.dumps(obj, default=str).encode("utf-8")
@@ -74,8 +90,6 @@ def _serve_static(handler, rel: str) -> None:
 
 
 def build_handler(db_path: str, projects_dir: str, grok_sessions_dir: str | None = None):
-    pricing = load_pricing(PRICING_JSON)
-
     class H(http.server.BaseHTTPRequestHandler):
         def log_message(self, fmt, *args):
             pass
@@ -90,6 +104,7 @@ def build_handler(db_path: str, projects_dir: str, grok_sessions_dir: str | None
             since = qs.get("since", [None])[0]
             until = qs.get("until", [None])[0]
             source = qs.get("source", ["all"])[0]
+            pricing = _current_pricing()
             if path in ("/", "/index.html"):
                 return _serve_static(self, "index.html")
             if path.startswith("/web/"):

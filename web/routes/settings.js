@@ -1,8 +1,19 @@
 import { api, state, $ } from '/web/app.js';
 
+/** Models shown on Settings pricing table (Claude Code + Grok Build).
+ *  Cost calc still uses full pricing.models + tier_fallback. */
+function pricingPageRows(pricing) {
+  const models = pricing.models || {};
+  const keys = Array.isArray(pricing.pricing_page_models) && pricing.pricing_page_models.length
+    ? pricing.pricing_page_models.filter((k) => models[k])
+    : Object.keys(models);
+  return keys.map((k) => [k, models[k]]);
+}
+
 export default async function (root) {
   const cur = await api('/api/plan');
   const plans = Object.entries(cur.pricing.plans);
+  const pageRows = pricingPageRows(cur.pricing);
   root.innerHTML = `
     <div class="card">
       <h2>Settings</h2>
@@ -19,11 +30,11 @@ export default async function (root) {
       <hr class="divider">
 
       <h3>Pricing table</h3>
-      <p class="muted" style="margin:0 0 12px">Edit <code>pricing.json</code> in the project root to change rates. Reload the page after editing.</p>
+      <p class="muted" style="margin:0 0 12px">Models available in Claude Code and Grok Build. Edit <code>pricing.json</code> (<code>pricing_page_models</code> + rates) to change what appears. Reload after editing.</p>
       <table>
         <thead><tr><th>model</th><th class="num">input</th><th class="num">output</th><th class="num">cache read</th><th class="num">cache 5m</th><th class="num">cache 1h</th></tr></thead>
         <tbody>
-          ${Object.entries(cur.pricing.models).map(([k,v]) => `
+          ${pageRows.map(([k,v]) => `
             <tr><td><span class="badge ${v.tier}">${k}</span></td>
               <td class="num">$${v.input.toFixed(2)}</td>
               <td class="num">$${v.output.toFixed(2)}</td>
@@ -33,7 +44,7 @@ export default async function (root) {
             </tr>`).join('')}
         </tbody>
       </table>
-      <p class="muted" style="margin-top:8px;font-size:11px">Rates per 1M tokens, USD.</p>
+      <p class="muted" style="margin-top:8px;font-size:11px">Rates per 1M tokens, USD. Other model IDs still bill via rates / tier_fallback.</p>
 
       <hr class="divider">
 
