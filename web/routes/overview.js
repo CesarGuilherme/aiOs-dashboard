@@ -309,8 +309,8 @@ export default async function (root) {
         <dt>Turn</dt><dd>One message you sent. Each turn triggers a response (possibly with tool calls in between).</dd>
         <dt>Input tokens</dt><dd>New context this turn. Claude: billed input. Grok: reconstructed from context-size deltas (see Known Limitations).</dd>
         <dt>Output tokens</dt><dd>Agent reply text. Claude: billed output. Grok: estimated from message length.</dd>
-        <dt>Cache read</dt><dd>Claude-only: tokens re-used from cache (~10× cheaper). Always 0 for Grok rows.</dd>
-        <dt>Cache create</dt><dd>Claude-only: writing into the cache. Always 0 for Grok rows.</dd>
+        <dt>Cache read</dt><dd>Tokens re-used from cache (~10× cheaper). Claude + Grok (from <code>turn_completed.usage</code>).</dd>
+        <dt>Cache create</dt><dd>Writing into the cache (Claude only — Grok does not report create buckets).</dd>
         <dt>Est. cost</dt><dd>Shown in <strong>R$</strong> (USD rates × <code>~/.claude/.usd_brl</code>). API-equivalent, not subscription math.</dd>
         <dt>Billable tokens</dt><dd>Input + Output + Cache create. Cache reads are billed separately (and much cheaper).</dd>
         <dt>Agent chips</dt><dd>Click <b>claude</b> or <b>grok</b> to filter every KPI and chart on this page to that agent. Click again or <b>all</b> to clear.</dd>
@@ -325,7 +325,7 @@ export default async function (root) {
       </div>
       <div class="card">
         <h3>Daily cache reads</h3>
-        <p class="muted" style="margin:-4px 0 10px;font-size:12px"><b>Cache reads</b> are cheap re-uses of things already seen (like CLAUDE.md). They cost ~10× less than regular input — high numbers here are good (Claude only).</p>
+        <p class="muted" style="margin:-4px 0 10px;font-size:12px"><b>Cache reads</b> are cheap re-uses of things already seen (like CLAUDE.md / system context). They cost ~10× less than regular input — high numbers here are good.</p>
         <div id="ch-daily-cache" style="height:260px"></div>
       </div>
     </div>

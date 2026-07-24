@@ -2,15 +2,21 @@
 
 None of these are blockers — the dashboard still gives you useful information. They're the rough edges you'll notice if you look hard.
 
-## Grok token split is reconstructed
+## Grok tokens: real usage when present, estimate otherwise
 
-Claude JSONL carries Anthropic `input_tokens` / `output_tokens` / cache fields. Grok `updates.jsonl` only exposes a running `params._meta.totalTokens` (context size) plus free-text chunks. The Grok scanner:
+Claude JSONL carries Anthropic `input_tokens` / `output_tokens` / cache fields per message. Grok `updates.jsonl` emits a `turn_completed` event with `usage` on most modern turns:
 
-- treats **context growth** between turns as `input_tokens`
-- estimates **output_tokens** as `chars//4` of agent message (+ half weight for thoughts)
-- leaves **cache_*** columns at 0
+- `inputTokens` / `outputTokens` / `cachedReadTokens` (and optional `costUsdTicks`)
+- Scanner maps **uncached** input = `inputTokens − cachedReadTokens`, cache read = `cachedReadTokens`, so `cost_for` does not double-bill cache
+- **`cache_create_*` stays 0** — Grok does not report cache-write (5m/1h) buckets
 
-Costs for Grok models therefore use those reconstructed counts against rates in `pricing.json`. Prefer Claude rows for cache economics.
+Older turns without `usage` still fall back to reconstruction:
+
+- **context growth** from `params._meta.totalTokens` → `input_tokens`
+- **output** ≈ `chars//4` of agent text (+ half weight for thoughts)
+- **cache_*** = 0
+
+Costs use those counts against rates in `pricing.json`. Optional server-stamped `costUsdTicks` is not yet preferred over the rate table.
 
 ## Costs display in BRL
 

@@ -29,12 +29,26 @@ export default async function (root) {
   });
   root.querySelectorAll('button[data-key]').forEach(b => {
     b.addEventListener('click', async () => {
-      await fetch('/api/tips/dismiss', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: b.dataset.key }),
-      });
-      location.reload();
+      b.disabled = true;
+      try {
+        const res = await fetch('/api/tips/dismiss', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: b.dataset.key }),
+        });
+        if (!res.ok) throw new Error('dismiss failed');
+        b.closest('.tip')?.remove();
+        if (!root.querySelector('.tip')) {
+          const card = root.querySelector('.card');
+          if (card) {
+            card.innerHTML = `
+              <h2>Suggestions</h2>
+              <p class="muted">No suggestions right now. Token Dashboard surfaces patterns weekly — check back after more activity.</p>`;
+          }
+        }
+      } catch {
+        b.disabled = false;
+      }
     });
   });
 }

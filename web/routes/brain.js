@@ -293,12 +293,21 @@ export default async function (root) {
   });
   root.querySelectorAll('button[data-key]').forEach(b => {
     b.addEventListener('click', async () => {
-      await fetch('/api/tips/dismiss', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: b.dataset.key }),
-      });
-      location.reload();
+      b.disabled = true;
+      try {
+        const res = await fetch('/api/tips/dismiss', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: b.dataset.key }),
+        });
+        if (!res.ok) throw new Error('dismiss failed');
+        const card = b.closest('.card');
+        b.closest('.tip')?.remove();
+        // Drop the whole "Suggested memories" section when empty
+        if (card && !card.querySelector('.tip')) card.remove();
+      } catch {
+        b.disabled = false;
+      }
     });
   });
 

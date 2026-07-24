@@ -4,9 +4,13 @@ Layout (see ~/.grok/docs/user-guide/17-sessions.md):
   ~/.grok/sessions/<url-encoded-cwd>/<session-id>/updates.jsonl
   + summary.json (model, cwd, title)
 
-Grok does not emit Anthropic-style per-message input/output/cache usage.
-We reconstruct turn-level rows from the ACP updates stream and best-effort
-token deltas from params._meta.totalTokens (running context size).
+Token accounting (prefer real usage when present):
+  - `turn_completed.usage` carries inputTokens / outputTokens / cachedReadTokens
+    (and optional costUsdTicks). Map to dashboard columns with uncached input
+    = inputTokens - cachedReadTokens so cost_for does not double-bill cache.
+  - Fallback (older turns without usage): context growth from
+    params._meta.totalTokens as input; chars//4 as output; cache_* = 0.
+  - cache_create_* is always 0 (Grok does not emit cache-write buckets).
 """
 
 from __future__ import annotations
@@ -29,6 +33,30 @@ _TARGET_KEYS = (
     "file_path", "path", "target_directory", "target_file", "command",
     "pattern", "query", "url", "prompt", "image",
 )
+
+
+def _as_int(v: Any, default: int = 0) -> int:
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return default
+
+
+def _tokens_from_usage(usage: dict) -> Tuple[int, int, int]:
+    """Map Grok turn_completed.usage → (input, output, cache_read).
+
+    Grok reports full prompt size in inputTokens with cache hits in
+    cachedReadTokens (totalTokens ≈ input + output). Store uncached input
+    separately so pricing matches Anthropic-style cost_for.
+    """
+    full_in = _as_int(usage.get("inputTokens"))
+    cache_read = max(0, _as_int(usage.get("cachedReadTokens")))
+    output = max(0, _as_int(usage.get("outputTokens")))
+    if cache_read and full_in >= cache_read:
+        uncached = full_in - cache_read
+    else:
+        uncached = max(0, full_in)
+    return uncached, output, cache_read
 
 
 def _iso_from_ts(ts: Any) -> str:
@@ -135,6 +163,7 @@ def parse_updates(
                 "assistant_ts": None,
                 "agent_id": None,
                 "is_sidechain": 0,
+                "usage": None,  # turn_completed.usage dict when present
             }
             order.append(pid)
         return turns[pid]
@@ -235,7 +264,15 @@ def parse_updates(
                     })
             elif su == "turn_completed":
                 if pid:
-                    turn(pid)["stop_reason"] = update.get("stop_reason") or "end_turn"
+                    t = turn(pid)
+                    t["stop_reason"] = update.get("stop_reason") or "end_turn"
+                    usage = update.get("usage")
+                    if isinstance(usage, dict) and usage:
+                        t["usage"] = usage
+                        # Prefer model id from modelUsage when stream omitted modelId
+                        mu = usage.get("modelUsage")
+                        if isinstance(mu, dict) and mu and not t.get("model"):
+                            t["model"] = next(iter(mu.keys()), None)
             elif su == "subagent_spawned":
                 if pid:
                     turn(pid)["is_sidechain"] = 1
@@ -266,13 +303,23 @@ def parse_updates(
         asst_ts = t["assistant_ts"] or user_ts
 
         max_tok = int(t["max_tokens"] or 0)
-        # context growth as input estimate
-        input_tokens = max(0, max_tok - prev_max) if max_tok else 0
-        if max_tok:
-            prev_max = max_tok
-        # output estimate from visible assistant text (+ thought at half weight)
-        out_chars = len(asst_text) + len(thought) // 2
-        output_tokens = max(0, out_chars // 4)
+        usage = t.get("usage")
+        if isinstance(usage, dict) and usage:
+            input_tokens, output_tokens, cache_read_tokens = _tokens_from_usage(usage)
+            # keep context watermark for any later turns that lack usage
+            tot = _as_int(usage.get("totalTokens"))
+            if tot:
+                prev_max = max(prev_max, tot)
+            elif max_tok:
+                prev_max = max(prev_max, max_tok)
+        else:
+            # context growth as input estimate; chars//4 for output; no cache
+            input_tokens = max(0, max_tok - prev_max) if max_tok else 0
+            if max_tok:
+                prev_max = max_tok
+            out_chars = len(asst_text) + len(thought) // 2
+            output_tokens = max(0, out_chars // 4)
+            cache_read_tokens = 0
 
         if user_text or t["tools"] or asst_text:
             messages.append({
@@ -352,7 +399,7 @@ def parse_updates(
             "message_id": f"{pid}:assistant",
             "input_tokens": input_tokens,
             "output_tokens": output_tokens,
-            "cache_read_tokens": 0,
+            "cache_read_tokens": cache_read_tokens,
             "cache_create_5m_tokens": 0,
             "cache_create_1h_tokens": 0,
             "prompt_text": None,

@@ -54,7 +54,7 @@ Env vars: `PORT` (default 8181), `HOST` (default 127.0.0.1), `CLAUDE_PROJECTS_DI
 
 ## Known limitations
 
-See `docs/KNOWN_LIMITATIONS.md`. Current summary: Skills `tokens_per_call` is populated only for skills installed under the three scanned roots (`~/.claude/skills/`, `~/.claude/scheduled-tasks/`, `~/.claude/plugins/`); project-local skills and subagent-dispatched skills show invocation counts but blank token counts. Grok cache fields are always 0.
+See `docs/KNOWN_LIMITATIONS.md`. Current summary: Skills `tokens_per_call` is populated only for skills installed under the three scanned roots (`~/.claude/skills/`, `~/.claude/scheduled-tasks/`, `~/.claude/plugins/`); project-local skills and subagent-dispatched skills show invocation counts but blank token counts. Grok cache **read** comes from `turn_completed.usage.cachedReadTokens` when present; cache **create** stays 0 (Grok does not emit create buckets).
 
 ## Verifying changes
 
