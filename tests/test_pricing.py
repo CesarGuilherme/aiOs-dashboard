@@ -42,6 +42,8 @@ class CostTests(unittest.TestCase):
         self.assertFalse(c["estimated"])
         c = cost_for("claude-sonnet-5", self._u(input_tokens=1_000_000, output_tokens=1_000_000), self.p)
         self.assertAlmostEqual(c["usd"], 12.00, places=4)  # intro $2+$10 through 2026-08-31
+        c = cost_for("claude-opus-5", self._u(input_tokens=1_000_000), self.p)
+        self.assertAlmostEqual(c["usd"], 5.00, places=4)
         c = cost_for("claude-opus-4-8", self._u(input_tokens=1_000_000), self.p)
         self.assertAlmostEqual(c["usd"], 5.00, places=4)
 
@@ -88,6 +90,7 @@ class PricingPageModelsTests(unittest.TestCase):
         self.assertTrue(any(m.startswith("claude-") for m in page))
         self.assertTrue(any(m.startswith("grok-") for m in page))
         self.assertIn("grok-4.5", page)
+        self.assertIn("claude-opus-5", page)
         self.assertIn("claude-opus-4-8", page)
         # Page is a subset — legacy/rare IDs stay in models for billing only.
         self.assertNotIn("claude-opus-4-1", page)

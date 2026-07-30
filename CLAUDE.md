@@ -34,6 +34,14 @@ Stdlib-only `ThreadingHTTPServer` + handler factory (`build_handler` closes over
 
 Hand-rolled 2D-canvas 3D **synapse graph** for the Brain tab — no SVG, no charting lib, unrelated to `web/charts.js`/ECharts. One-shot Fruchterman-Reingold 3D layout on mount, then just rotates; color is a **rainbow hue per project/group**, deliberately independent of the app's `--accent` HUD palette — don't reharmonize it with chart colors. Shift+drag orbits (plain drag pans) — ctrl+drag was tried and rejected because ctrl+click opens Safari's context menu. Callers must invoke the returned `__teardown()` on unmount to stop the rAF loop/interval/ResizeObserver. SSE soft-refresh is skipped on the Brain tab so the graph does not reset mid-view. Full remount happens only on hash navigation; Overview implements optional `export async function refresh(root)` for in-place live updates.
 
+### `web/routes/brain.js` (Brain tab route)
+
+`#/brain` page: fetches `/api/brain` + `/api/workspace` (workspace optional). **Canvas nodes = memory entries + wikilinks only**; skills/routines/apps stay in the sidebar lists. Wires `ringsCanvas`, search (`/`), labels/spin, ROI KPIs, timeline chart, suggestions (dismiss → `/api/tips/dismiss`), prune + auto keep/remove (`/api/brain/keep|remove` → full reload). Default export **returns teardown** (`rings.__teardown` + slash keydown). **No `export refresh`** — SSE deliberately skips this tab. Durable notes: `…/memory/brain_js_contract.md`.
+
+### `web/routes/overview.js` (Overview tab)
+
+Main KPIs/charts. Hash query: `range` (`7d|30d|90d|all`, default **30d**) + `source` (`all|claude|grok`); chip/range clicks rewrite hash (remount). Parallel bundle: overview/projects/sessions/tools/daily/by-model; costs via `usd_brl_rate` → R$. **`export async function refresh(root)`** is the SSE soft path: no-ops without `#ch-daily-billable`, then `patchLiveData` (KPIs, chips meta, sessions, charts) — never full remount on scan. Knowledge strip loads `/api/brain` async after paint. Durable notes: `…/memory/overview_js_contract.md`.
+
 ## Data source
 
 Claude Code writes one JSONL file per session to `~/.claude/projects/<project-slug>/<session-id>.jsonl`. Each line is a message record; usage fields live at `message.usage` and model identifier at `message.model`. The scanner is incremental — it tracks each file's mtime and byte offset in the `files` table and only reads new bytes on subsequent scans.

@@ -3,6 +3,7 @@
     "claude-fable-5":      { "tier": "fable",  "input": 10.00, "output": 50.00, "cache_read": 1.00, "cache_create_5m": 12.50, "cache_create_1h": 20.00 },
     "claude-mythos-5":     { "tier": "fable",  "input": 10.00, "output": 50.00, "cache_read": 1.00, "cache_create_5m": 12.50, "cache_create_1h": 20.00 },
     "claude-mythos-preview": { "tier": "fable", "input": 10.00, "output": 50.00, "cache_read": 1.00, "cache_create_5m": 12.50, "cache_create_1h": 20.00 },
+    "claude-opus-5":       { "tier": "opus",   "input":  5.00, "output": 25.00, "cache_read": 0.50, "cache_create_5m":  6.25, "cache_create_1h": 10.00 },
     "claude-opus-4-8":     { "tier": "opus",   "input":  5.00, "output": 25.00, "cache_read": 0.50, "cache_create_5m":  6.25, "cache_create_1h": 10.00 },
     "claude-opus-4-7":     { "tier": "opus",   "input":  5.00, "output": 25.00, "cache_read": 0.50, "cache_create_5m":  6.25, "cache_create_1h": 10.00 },
     "claude-opus-4-6":     { "tier": "opus",   "input":  5.00, "output": 25.00, "cache_read": 0.50, "cache_create_5m":  6.25, "cache_create_1h": 10.00 },
@@ -18,6 +19,7 @@
   },
   "pricing_page_models": [
     "claude-fable-5",
+    "claude-opus-5",
     "claude-opus-4-8",
     "claude-sonnet-5",
     "claude-sonnet-4-6",
