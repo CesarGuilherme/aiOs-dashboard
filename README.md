@@ -162,6 +162,26 @@ The dashboard is a single page with a hash-router tab bar across the top. Each t
 - **Tips** — rule-based suggestions for reducing token usage (repeated file reads, oversized tool results, low cache-hit rate, etc.).
 - **Settings** — switch pricing between API / Pro / Max / Max-20x so cost figures everywhere else reflect your actual plan. Reminder: `Cmd/Ctrl+B` blurs sensitive text for screenshots.
 
+## Two frontends
+
+The dashboard ships **two complete UIs over the same data**, in the same process:
+
+| | htmx (default) | vanilla SPA |
+|---|---|---|
+| URL | `http://127.0.0.1:8181/` | `http://127.0.0.1:8181/spa` |
+| Rendering | Python f-strings, HTML over the wire | vanilla JS, `fetch` + template literals |
+| Routing | real URLs (`/hx/prompts?sort=recent`) | hash router (`#/prompts?sort=recent`) |
+
+Same eight tabs, same JARVIS theme (`web/style.css` is shared byte-for-byte). The topbar has an `spa` pill to jump to the old UI. Charts and the Brain graph stay JS islands in both — `web/charts.js` and `web/rings.js` are reused unmodified.
+
+`web/htmx.min.js` is vendored (48 KB), like `web/echarts.min.js` — still no `pip install`, still no runtime network calls. To refresh it:
+
+```bash
+curl -L https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js -o web/htmx.min.js
+```
+
+To make the SPA the default again, swap the two branches at the top of `do_GET` in `token_dashboard/server.py` — `/` serves `web/index.html`, `/hx` serves the htmx shell.
+
 ## Why not Obsidian + Graphify?
 
 The AI tools community often promotes Obsidian with the Graphify plugin as the go-to external memory system for AI workflows. We evaluated it and chose differently — here's why.
