@@ -17,7 +17,7 @@ Inspired by [phuryn/claude-usage](https://github.com/phuryn/claude-usage) but di
 
 ## Status
 
-Working codebase. 121 Python unit tests (`python3 -m unittest discover tests`). Eight UI tabs wired up (Overview, Brain, Prompts, Sessions, Projects, Skills, Tips, Settings). Runs on macOS, Windows, and Linux.
+Working codebase. 124 Python unit tests (`python3 -m unittest discover tests`). Eight UI tabs wired up (Overview, Brain, Prompts, Sessions, Projects, Skills, Tips, Settings). Runs on macOS, Windows, and Linux.
 
 **The default UI is now the server-rendered htmx frontend, served at `/`.** The vanilla SPA is untouched and still fully wired at **`/spa`** (linked from the topbar). To switch back, flip the two branches at the top of `do_GET` in `server.py`.
 
