@@ -11,13 +11,28 @@ Inspired by [phuryn/claude-usage](https://github.com/phuryn/claude-usage) but di
 ### Session contract (do not re-derive)
 - **What it is:** local stdlib-only CLI + SQLite cache + vanilla `web/` SPA (hash router, no build). Serves on `127.0.0.1:8181`; UI costs in **R$** via `~/.claude/.usd_brl`.
 - **Data plane:** `scan_all` every 30s → Claude JSONL + Grok sessions → `~/.claude/token-dashboard.db`; APIs under `/api/*`; Brain from `~/.claude/projects/*/memory/` + global memory.
-- **Live UI:** SSE `/api/stream` may emit `scan`; client **soft-refreshes** only (Overview `export refresh`); full remount is **navigation-only**; Brain never auto-refreshes.
+- **Live UI:** SSE `/api/stream` may emit `scan`; client **soft-refreshes** only (Overview `export refresh`); full remount is **navigation-only**; Brain never auto-refreshes. `/api/stream` fans out to **one queue per connected client** (`_publish` / `_subscribe`) — a single shared queue handed each event to exactly one client.
 - **Dedup:** assistant billing key is `(session_id, message_id)`, not top-level `uuid` (streaming snapshots).
 - **Touch carefully:** `web/app.js` router/SSE, `web/charts.js` instance reuse, `web/rings.js` teardown, `token_dashboard/server.py` `_scan_loop` — do not “fix” live updates by remounting tabs.
 
 ## Status
 
-Working codebase. 99 Python unit tests (`python3 -m unittest discover tests`). Eight UI tabs wired up (Overview, Brain, Prompts, Sessions, Projects, Skills, Tips, Settings). Runs on macOS, Windows, and Linux.
+Working codebase. 121 Python unit tests (`python3 -m unittest discover tests`). Eight UI tabs wired up (Overview, Brain, Prompts, Sessions, Projects, Skills, Tips, Settings). Runs on macOS, Windows, and Linux.
+
+**The default UI is now the server-rendered htmx frontend, served at `/`.** The vanilla SPA is untouched and still fully wired at **`/spa`** (linked from the topbar). To switch back, flip the two branches at the top of `do_GET` in `server.py`.
+
+## The htmx frontend (default, at `/`)
+
+A full-parity server-rendered UI. Both frontends run in the same process: htmx at `/` (canonical tab URLs under `/hx/…`), SPA at `/spa`.
+
+- **Python:** `hx_views.py` (shell, formatters, GET/POST dispatch) · `hx_tabs.py` (projects/sessions/prompts/tips/settings) · `hx_overview.py` (overview + skills, the chart-bearing pages) · `hx_brain.py` (Brain). HTML is f-strings + `html.escape` — **no template engine**, per the stdlib-only rule. Every interpolated value goes through `e()`.
+- **Server changes are two:** a route branch after `server.py:111`, and `/hx/*` claiming the POST body **before** `json.loads` (htmx posts form-encoded).
+- **One URL, two representations:** plain GET → full page; `HX-Request: true` → fragment only. Nav is per-tab `hx-get` targeting `#app` (never `hx-boost`, which would re-run the shell scripts and stack a second `EventSource`).
+- **Assets live in `web/`** so the existing `_serve_static` serves them: `htmx.min.js` (vendored, like `echarts.min.js`), `hx-charts.js`, `hx-brain.js`. `style.css`, `charts.js`, `rings.js`, `hud-background.js` are reused unmodified.
+- **Islands:** charts and the Brain graph cannot be server-rendered. The server emits `data-chart`/`data-opt` divs and a `<script type="application/json" id="rings-data">`; the shell hydrates them on initial load **and** on `htmx:afterSwap`.
+- **Three teardown rules, all load-bearing.** (1) `htmx:beforeSwap` disposes charts and calls `window.__hxTeardown` **only when `e.detail.target.id === 'app'`** — a partial swap (the Knowledge strip's `hx-trigger="load"`, a dismissed tip) must not wipe the islands. (2) `hx-brain.js` must set `window.__hxTeardown`, or the rings rAF loop runs forever on a detached canvas. (3) **Browser back/forward** restores `#app` (`hx-history-elt`) from htmx's cache and fires *neither* swap event — `htmx:historyRestore` has to tear down and re-hydrate by hand, and the island mounters clear their container first because the cached markup contains dead SVG/canvas.
+- **Known regression vs the SPA:** the SSE scan re-fetches the whole tab, so Overview rebuilds its five charts instead of patching in place like `overview.js` `patchLiveData`. Marked with a `ponytail:` comment in `hx_views.py`; upgrade path is a `#kpi-row`-only fragment.
+- **Where htmx pays off:** the five table tabs, and real bookmarkable URLs replacing ~80 lines of `location.hash` parsing. **Where it's a tax:** Brain (~90% JS island) and Overview (chart options serialized into attributes).
 
 ## Architecture
 

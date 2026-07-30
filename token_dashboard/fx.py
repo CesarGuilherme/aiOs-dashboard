@@ -32,3 +32,13 @@ def usd_to_brl(usd: float | None, rate: float | None = None) -> float | None:
         return None
     r = rate if rate is not None else usd_brl_rate()
     return round(float(usd) * r, 6)
+
+
+def brl(usd: float | None, rate: float | None = None, digits: int = 2) -> str:
+    """Display string for a USD amount, in BRL. Mirrors web/app.js `_brl` exactly —
+    same comma decimal separator, same absence of thousands separators — so the two
+    frontends can be diffed side by side without cosmetic noise."""
+    v = usd_to_brl(usd, rate)
+    if v is None:
+        return "—"
+    return "R$ " + f"{v:.{digits}f}".replace(".", ",")

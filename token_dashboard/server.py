@@ -1,6 +1,7 @@
 """HTTP server: static frontend + JSON endpoints + SSE diff stream."""
 from __future__ import annotations
 
+import contextlib
 import http.server
 import json
 import mimetypes
@@ -28,7 +29,32 @@ from .workspace import scan_workspace, workspace_roots, allowed_open_path, open_
 WEB_ROOT = Path(__file__).resolve().parent.parent / "web"
 PRICING_JSON = Path(__file__).resolve().parent.parent / "pricing.json"
 
-EVENTS: "queue.Queue[dict]" = queue.Queue()
+# One queue per connected SSE client. A single shared queue would hand each scan
+# event to exactly one client, so two open tabs (or the SPA + the /hx UI) steal
+# updates from each other.
+_SUBS: "list[queue.Queue[dict]]" = []
+_SUBS_LOCK = threading.Lock()
+
+
+def _publish(evt: dict) -> None:
+    with _SUBS_LOCK:
+        subs = list(_SUBS)
+    for q in subs:
+        q.put(evt)
+
+
+@contextlib.contextmanager
+def _subscribe():
+    q: "queue.Queue[dict]" = queue.Queue()
+    with _SUBS_LOCK:
+        _SUBS.append(q)
+    try:
+        yield q
+    finally:
+        with _SUBS_LOCK:
+            if q in _SUBS:
+                _SUBS.remove(q)
+
 
 MAX_POST_BYTES = 1_000_000  # 1 MB — we only accept tiny JSON bodies (plan, tip key)
 MAX_LIMIT = 1000
@@ -105,10 +131,15 @@ def build_handler(db_path: str, projects_dir: str, grok_sessions_dir: str | None
             until = qs.get("until", [None])[0]
             source = qs.get("source", ["all"])[0]
             pricing = _current_pricing()
-            if path in ("/", "/index.html"):
+            # The server-rendered htmx UI owns "/". The vanilla SPA is still fully
+            # wired and lives at /spa — flip these two branches to switch back.
+            if path in ("/spa", "/spa/", "/index.html"):
                 return _serve_static(self, "index.html")
             if path.startswith("/web/"):
                 return _serve_static(self, path[5:])
+            if path in ("/", "/hx") or path.startswith("/hx/"):
+                from . import hx_views
+                return hx_views.handle(self, path, qs, db_path, projects_dir, pricing)
             if path == "/api/overview":
                 totals = overview_totals(db_path, since, until, source=source)
                 cost_usd = 0.0
@@ -212,17 +243,18 @@ def build_handler(db_path: str, projects_dir: str, grok_sessions_dir: str | None
                 self.send_header("Cache-Control", "no-store")
                 self.send_header("Connection", "keep-alive")
                 self.end_headers()
-                while True:
-                    try:
-                        evt = EVENTS.get(timeout=15)
-                        chunk = f"data: {json.dumps(evt, default=str)}\n\n".encode()
-                    except queue.Empty:
-                        chunk = b": ping\n\n"
-                    try:
-                        self.wfile.write(chunk)
-                        self.wfile.flush()
-                    except (BrokenPipeError, ConnectionResetError):
-                        return
+                with _subscribe() as q:
+                    while True:
+                        try:
+                            evt = q.get(timeout=15)
+                            chunk = f"data: {json.dumps(evt, default=str)}\n\n".encode()
+                        except queue.Empty:
+                            chunk = b": ping\n\n"
+                        try:
+                            self.wfile.write(chunk)
+                            self.wfile.flush()
+                        except (BrokenPipeError, ConnectionResetError):
+                            return
             self.send_response(404)
             self.end_headers()
 
@@ -234,6 +266,12 @@ def build_handler(db_path: str, projects_dir: str, grok_sessions_dir: str | None
                 return _send_error(self, 400, "invalid Content-Length")
             if length < 0 or length > MAX_POST_BYTES:
                 return _send_error(self, 413, f"body too large (max {MAX_POST_BYTES} bytes)")
+            # htmx posts form-encoded, so /hx/* must claim the body before json.loads.
+            if url.path.startswith("/hx/"):
+                raw = self.rfile.read(length).decode("utf-8", "replace") if length else ""
+                form = {k: v[0] for k, v in parse_qs(raw).items()}
+                from . import hx_views
+                return hx_views.handle_post(self, url.path, form, db_path, projects_dir)
             try:
                 body = json.loads(self.rfile.read(length) or b"{}") if length else {}
             except json.JSONDecodeError:
@@ -280,9 +318,9 @@ def _scan_loop(db_path: str, projects_dir: str, grok_sessions_dir: str | None = 
         try:
             n = scan_all(db_path, projects_dir=projects_dir, grok_sessions_dir=grok_sessions_dir)
             if n["messages"] > 0:
-                EVENTS.put({"type": "scan", "n": n, "ts": time.time()})
+                _publish({"type": "scan", "n": n, "ts": time.time()})
         except Exception as e:
-            EVENTS.put({"type": "error", "message": str(e)})
+            _publish({"type": "error", "message": str(e)})
         time.sleep(interval)
 
 
