@@ -2,7 +2,7 @@
 
 A local multi-agent dashboard that reads Claude Code JSONL under `~/.claude/projects/` **and** Grok CLI sessions under `~/.grok/sessions/`, then turns them into per-prompt cost analytics (displayed in **R$**), tool/file heatmaps, cache analytics, project comparisons, a rule-based tips engine, and the shared **Second Brain** memory browser.
 
-**Everything runs locally.** No data leaves your machine — no telemetry, no API calls for your data, no login. The UI is a JARVIS-style HUD (vanilla JS, no build step).
+**Everything runs locally.** No data leaves your machine — no telemetry, no API calls for your data, no login. The default UI is a JARVIS-style HUD rendered with htmx (Python f-strings, no template engine, no build step). The original vanilla SPA still lives at `/spa`.
 
 ![Overview — KPIs, source filter, daily charts](docs/images/dashboard-overview-top.jpg)
 
@@ -52,7 +52,9 @@ cd aiOs-dashboard
 docker compose up --build
 ```
 
-This mounts `~/.claude` and `~/.grok` into the container so the dashboard reads both agents’ sessions and persists its cache at `~/.claude/token-dashboard.db`. It also live-mounts `web/` so frontend edits appear on browser refresh without a rebuild. Open http://localhost:8181 once the container starts.
+This mounts `~/.claude` and `~/.grok` into the container so the dashboard reads both agents’ sessions. Compose pins `TOKEN_DASHBOARD_DB` to `/data/claude/token-dashboard.db` (host path `~/.claude/token-dashboard.db`) so the cache lives on the mounted volume — that is a Docker exception; a native run defaults to `~/.brain/token-dashboard.db`. It also live-mounts `web/` so frontend edits appear on browser refresh without a rebuild. Open http://localhost:8181 once the container starts.
+
+Compose does **not** mount `~/.brain`, so the Brain tab (memories under `~/.brain/projects/` + `~/.brain/global/`) and the FX file `~/.brain/.usd_brl` are empty/default inside the container unless you add that volume.
 
 ### Run with plain Docker
 
@@ -88,7 +90,7 @@ The command:
 2. Starts a local server at http://127.0.0.1:8181.
 3. Opens your default browser to that URL.
 
-Leave it running; it re-scans every 30 seconds and pushes updates live (Overview soft-refreshes KPIs/charts in place; other tabs without a soft-refresh handler stay put; the Brain graph is never auto-refreshed so the canvas doesn't reset). Stop with `Ctrl+C`.
+Leave it running; it re-scans every 30 seconds and pushes a `scan` event over SSE. The default htmx UI re-fetches the current tab (Brain is skipped so the canvas doesn't reset). The SPA at `/spa` patches Overview in place and leaves other tabs put. Stop with `Ctrl+C`.
 
 ## Where the data comes from
 
@@ -101,7 +103,7 @@ Claude Code writes one JSONL file per session here:
 
 Grok CLI sessions live under `~/.grok/sessions/` (`updates.jsonl` + `summary.json` per session).
 
-The dashboard never modifies those session files — it only reads them and keeps a local SQLite cache at `~/.claude/token-dashboard.db`.
+The dashboard never modifies those session files — it only reads them and keeps a local SQLite cache at `~/.brain/token-dashboard.db` (override with `--db` or `TOKEN_DASHBOARD_DB`).
 
 To point at a different location:
 
@@ -142,9 +144,9 @@ Change the port: `PORT=9000 python3 cli.py dashboard`.
 
 ## The 8 tabs
 
-The dashboard is a single page with a hash-router tab bar across the top. Each tab is backed by its own JSON API under `/api/`:
+The default UI uses real URLs under `/hx/…` (bookmarkable; Overview is `/` and `/hx`). The SPA at `/spa` uses a hash-router (`#/prompts`). JSON APIs under `/api/` still back the SPA and CSV exports.
 
-- **Overview** — input/output/cache tokens, sessions, turns, estimated cost on your chosen plan (R$), daily work and cache-read charts, tokens-by-project, token share by model, top tools by call count, and recent sessions. Filter with range tabs (`7d` / `30d` / `90d` / `all`) and source chips (`all` / `claude` / `grok`). Landing tab; also shows a Second Brain knowledge strip and a "What do these numbers mean?" panel. Live SSE updates patch this tab in place (no full remount).
+- **Overview** — input/output/cache tokens, sessions, turns, estimated cost on your chosen plan (R$), daily work and cache-read charts, tokens-by-project, token share by model, top tools by call count, and recent sessions. Filter with range tabs (`7d` / `30d` / `90d` / `all`) and source chips (`all` / `claude` / `grok`). Landing tab; also shows a Second Brain knowledge strip and a "What do these numbers mean?" panel. On the SPA, live SSE updates patch this tab in place; on htmx they re-fetch the tab.
 - **Brain** — your persistent memory across agents. Interactive **Second brain** synapse graph (`web/rings.js`): every memory node, color by project/group, linked via `[[wikilinks]]`. Shift+drag orbits, plain drag pans, scroll zooms; `/` focuses search; click a node for Fly-to / detail. Sidebar lists Skills, Routines, and Applications from `/api/workspace`. Below the graph: Memory ROI (saved vs extraction cost), cache hit-rate trend, learning timeline, auto-generated suggestions, effectiveness/prune candidates, and per-project memory browsers. SSE soft-refresh skips this tab so the canvas doesn't reset mid-view.
 - **Prompts** — your most expensive user prompts ranked by tokens. Click any row to see the assistant response, tool calls made, and the size of each tool result.
 - **Sessions** — turn-by-turn view of any single session, with per-turn tokens and tool calls (source badge for Claude vs Grok).
@@ -184,13 +186,13 @@ The AI tools community often promotes Obsidian with the Graphify plugin as the g
 - It's promoted by AI influencers for its aesthetics, not because it makes the AI meaningfully more effective
 
 **Why plain markdown files work better:**
-- Claude reads `.md` files directly — no middleware, no plugins, no extra tools
-- Memory lives where Claude already operates: `~/.claude/projects/<project>/memory/`
-- Structured frontmatter (`name`, `description`, `type`) gives Claude fast, reliable context loading at the start of every session
+- Agents read `.md` files directly — no middleware, no plugins, no extra tools
+- Durable memory is vendor-neutral under `~/.brain/projects/` + `~/.brain/global/`
+- Structured frontmatter (`name`, `description`, `type`) gives agents fast, reliable context loading at the start of every session
 - Files are human-readable, git-friendly, and auditable without any tooling
 - The Brain tab adds ROI tracking, suggested memories, and a live Second brain graph on top — things Obsidian has no concept of
 
-If you already use Obsidian, you can open the `~/.claude/projects/` folder as a vault to get a rich editor for your memory files — `[[wikilinks]]` are parsed as soft-links in the Second brain graph. But it's never required.
+If you already use Obsidian, you can open `~/.brain/` as a vault to get a rich editor for your memory files — `[[wikilinks]]` are parsed as soft-links in the Second brain graph. But it's never required.
 
 ## Troubleshooting
 
@@ -198,7 +200,7 @@ If you already use Obsidian, you can open the `~/.claude/projects/` folder as a 
 
 **Port 8181 already in use.** `PORT=9000 python3 cli.py dashboard`.
 
-**Numbers look wrong / stuck.** The DB lives at `~/.claude/token-dashboard.db`. Delete it and re-run `python3 cli.py scan` to rebuild from scratch.
+**Numbers look wrong / stuck.** The DB lives at `~/.brain/token-dashboard.db` (Docker Compose: `~/.claude/token-dashboard.db`). Delete it and re-run `python3 cli.py scan` to rebuild from scratch.
 
 **Running the dashboard twice at the same time.** Don't — both processes will fight over the SQLite DB. Stop all instances before starting a new one.
 
@@ -208,17 +210,17 @@ If you already use Obsidian, you can open the `~/.claude/projects/` folder as a 
 
 Claude Code writes each assistant response 2–3 times to disk while it streams (the same API message gets snapshotted as output grows). The dashboard dedupes these by `message.id` so the final tally matches what the API actually billed. If you compare against another tool that sums every JSONL row, expect this dashboard's numbers to be lower — and closer to reality.
 
-Grok token splits are reconstructed from context growth and message length (see [KNOWN_LIMITATIONS](docs/KNOWN_LIMITATIONS.md#grok-token-split-is-reconstructed)).
+Grok uses billed `turn_completed.usage` when present; older turns still reconstruct from context growth and message length (see [KNOWN_LIMITATIONS](docs/KNOWN_LIMITATIONS.md#grok-tokens-real-usage-when-present-estimate-otherwise)).
 
 ## Privacy
 
-Nothing leaves your machine. No telemetry. No remote calls for your data. The browser fetches its JSON from `127.0.0.1`, and all JS/CSS/fonts are served from that same local server — ECharts is vendored into `web/`, and the UI falls back to system fonts rather than pulling from a font CDN. If you want to verify: `grep -r "https://" token_dashboard/ web/ --exclude='echarts.min.js'` — you'll find nothing user-data related.
+Nothing leaves your machine. No telemetry. No remote calls for your data. The browser talks only to `127.0.0.1` (htmx HTML and `/api/*` JSON), and all JS/CSS/fonts are served from that same local server — ECharts and htmx are vendored into `web/`, and the UI falls back to system fonts rather than pulling from a font CDN. If you want to verify: `grep -r "https://" token_dashboard/ web/ --exclude='echarts.min.js'` — you'll find nothing user-data related.
 
 ## Tech stack
 
-Python 3 (stdlib only) for the CLI, scanners, and HTTP server. SQLite for the local cache. Vanilla JS + ECharts for charts, hand-rolled `rings.js` canvas for the Brain graph, HUD background lattice — no build step. Dark JARVIS theme, hash-based router, server-sent events for soft live updates (in-place Overview patch; full remount only on navigation).
+Python 3 (stdlib only) for the CLI, scanners, HTTP server, and the default htmx UI (`hx_views.py` / `hx_tabs.py` / `hx_overview.py` / `hx_brain.py`). SQLite for the local cache. Charts are ECharts islands; the Brain graph is hand-rolled `rings.js` canvas; HUD background lattice — no build step. Dark JARVIS theme. Live updates over SSE: htmx re-fetches the current tab; the SPA at `/spa` patches Overview in place (full remount only on navigation).
 
-Data flow: `cli.py` → `scan_all` → Claude `scanner.py` + Grok `grok_scanner.py` → SQLite; `token_dashboard/server.py` exposes `/api/*` JSON routes (including `/api/brain`, `/api/workspace`, `/api/stream`) and serves `web/`.
+Data flow: `cli.py` → `scan_all` → Claude `scanner.py` + Grok `grok_scanner.py` → SQLite; `token_dashboard/server.py` exposes `/api/*` JSON routes (including `/api/brain`, `/api/workspace`, `/api/stream`), `/hx/*` HTML, and serves `web/`.
 
 ## Further reading
 
