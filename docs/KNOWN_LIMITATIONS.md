@@ -20,17 +20,15 @@ Costs use those counts against rates in `pricing.json`. Optional server-stamped 
 
 ## Costs display in BRL
 
-Internal pricing is USD/1M tokens. The UI multiplies by the rate in `~/.claude/.usd_brl` (same file as the statusline; env `USD_BRL` override; fallback 5.40) and formats as `R$ 9,49`.
+Internal pricing is USD/1M tokens. The UI multiplies by the rate in `~/.brain/.usd_brl` (env `USD_BRL` override; fallback 5.40) and formats as `R$ 9,49`.
 
 ## Second Brain memory is shared; injection effectiveness is Claude-only
 
-Durable knowledge lives under `~/.claude/projects/*/memory/` + `~/.claude/memory/global/` for **all** agents. The `memory_injections` / `memory_usage` tables (Brain “effectiveness”) are still filled only by Claude Code hooks.
+Durable knowledge lives under `~/.brain/projects/` + `~/.brain/global` for **all** agents. The `memory_injections` / `memory_usage` tables (Brain “effectiveness”) and ROI extraction-cost (the `MEMORY_EXTRACTION_PASS` sentinel) are still filled only by Claude Code hooks. Grok has no equivalent auto-learn pass.
 
 ## Skills token counts are partial
 
-The Skills route shows every skill Claude Code invoked, how many times, across how many sessions, and when. The **tokens-per-call** column is populated only for skills whose `SKILL.md` lives under `~/.claude/skills/`, `~/.claude/scheduled-tasks/`, or `~/.claude/plugins/`. Skills registered elsewhere (project-local `.claude/skills/`, or invocations that go through the `Task` tool with a skill-shaped `subagent_type`) show invocation counts but leave the token column blank.
-
-It's still a useful view — you can see which skills dominate your session time — just don't expect a complete per-skill token cost. PRs to broaden the catalog scan welcome.
+The Skills route counts Claude `Skill` tool invocations **and** Grok `read_file`/`Read` of a `SKILL.md`. **tokens-per-call** comes from catalog files under `~/.claude/{skills,scheduled-tasks,plugins}` and `~/.grok/{skills,bundled/skills,installed-plugins}`. Project-local `.claude/skills/` / `.grok/skills/` and Task-dispatched skills still show counts (when invoked) but may leave the token column blank.
 
 ## Cost for Pro / Max / Max-20x users is shown as API-equivalent, not subscription value
 
@@ -51,7 +49,3 @@ The first `python3 cli.py scan` on a heavy user's machine can read tens of MB ac
 ## Running two dashboards against the same DB
 
 Both will fight over the SQLite file and you'll see inconsistent numbers and occasional `database is locked` errors. Only run one at a time. If you want to view the dashboard from a second device, use `HOST=0.0.0.0` on the one running machine and point the second device's browser at it.
-
-## Docker Compose does not mount Grok by default
-
-`docker-compose.yml` only bind-mounts `~/.claude`. Grok sessions under `~/.grok/sessions` are invisible inside the container unless you add a volume and set `GROK_SESSIONS_DIR` (see README § Docker). Host runs via `python3 cli.py dashboard` pick up Grok automatically.

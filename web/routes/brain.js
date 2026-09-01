@@ -40,7 +40,7 @@ export default async function (root) {
 
     <div class="card" style="margin-top:16px">
       <h2>Memory ROI</h2>
-      <p class="muted" style="margin:-8px 0 16px">Does the auto-learning brain pay for itself? <b>Saved</b> = tokens spent re-reading files a memory already covers (last 30d — an avoided-re-read <em>estimate</em>). <b>Cost</b> = real tokens the background extraction passes burned. <b>Net</b> is the difference.</p>
+      <p class="muted" style="margin:-8px 0 16px">Does the auto-learning brain pay for itself? <b>Saved</b> = tokens spent re-reading files a memory already covers (Claude + Grok, last 30d — an avoided-re-read <em>estimate</em>). <b>Cost</b> = real tokens Claude's background extraction passes burned (Grok has no equivalent pass). <b>Net</b> is the difference. Cache hit-rate includes both agents.</p>
       <div class="row cols-4">
         <div class="card kpi">
           <div class="label">Net (est.)</div>
@@ -79,7 +79,7 @@ export default async function (root) {
     ${brain.suggestions.length ? `
     <div class="card">
       <h2>Suggested memories</h2>
-      <p class="muted" style="margin:-8px 0 14px">Knowledge Claude keeps re-deriving instead of remembering — mined from the last 30 days of sessions. Copy the prompt into Claude Code to close the loop; once the memory exists the suggestion disappears.</p>
+      <p class="muted" style="margin:-8px 0 14px">Knowledge agents keep re-deriving instead of remembering — mined from the last 30 days of sessions. Copy the prompt into Claude Code or Grok to close the loop; once the memory exists the suggestion disappears.</p>
       ${brain.suggestions.map(s => `
         <div class="tip">
           <div class="tip-head">
@@ -96,7 +96,7 @@ export default async function (root) {
     ${prune.length ? `
     <div class="card" style="margin-top:16px">
       <h2>Memory effectiveness</h2>
-      <p class="muted" style="margin:-8px 0 14px">Memories the ranker injected <em>because it judged them relevant</em> to a prompt, but that were never referenced in the session — candidates to prune. Always-on global/baseline memories don't count here. Each appears in ≥3 sessions with zero hits.</p>
+      <p class="muted" style="margin:-8px 0 14px">Memories the ranker injected <em>because it judged them relevant</em> to a prompt, but that were never referenced in the session — candidates to prune. Always-on global/baseline memories don't count here. Each appears in ≥3 sessions with zero hits. Injection logs are Claude Code hooks only.</p>
       ${prune.map(pc => `
         <div class="tip">
           <div class="tip-head">

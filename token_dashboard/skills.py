@@ -20,13 +20,19 @@ _DEFAULT_ROOTS = [
     Path.home() / ".claude" / "skills",
     Path.home() / ".claude" / "scheduled-tasks",
     Path.home() / ".claude" / "plugins",
+    Path.home() / ".grok" / "skills",
+    Path.home() / ".grok" / "bundled" / "skills",
+    Path.home() / ".grok" / "installed-plugins",
 ]
 
 
 import re
 
 _VERSION_RE = re.compile(r"^\d+\.\d+")
-_STRUCTURE_NAMES = {"skills", "plugins", "marketplaces", "cache", ".claude"}
+_STRUCTURE_NAMES = {
+    "skills", "plugins", "marketplaces", "cache", ".claude",
+    ".grok", "bundled", "installed-plugins", "marketplace-cache",
+}
 
 
 def _slugs_for(skill_md: Path) -> list[str]:

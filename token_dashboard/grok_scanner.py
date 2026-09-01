@@ -16,6 +16,7 @@ Token accounting (prefer real usage when present):
 from __future__ import annotations
 
 import json
+import re
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -33,6 +34,28 @@ _TARGET_KEYS = (
     "file_path", "path", "target_directory", "target_file", "command",
     "pattern", "query", "url", "prompt", "image",
 )
+
+_TOOL_IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]*$")
+_KIND_TO_TOOL = {
+    "read": "read_file",
+    "edit": "search_replace",
+    "execute": "run_terminal_command",
+    "search": "search_tool",
+}
+
+
+def _canonical_tool_name(title: Any, kind: Any = None) -> str:
+    """Prefer snake_case tool ids; never store human titles like `Read /path`."""
+    t = (title or "").strip() if isinstance(title, str) else ""
+    if t and len(t) <= 80 and _TOOL_IDENT.match(t):
+        return t
+    k = (kind or "").strip().lower() if isinstance(kind, str) else ""
+    if k in _KIND_TO_TOOL:
+        return _KIND_TO_TOOL[k]
+    first = t.split()[0] if t else ""
+    if first and len(first) <= 80 and _TOOL_IDENT.match(first):
+        return first
+    return "unknown"
 
 
 def _as_int(v: Any, default: int = 0) -> int:
@@ -148,6 +171,9 @@ def parse_updates(
     order: List[str] = []  # promptIds in first-seen order
     last_total = 0
     orphan_tools: List[dict] = []  # tools before any promptId
+    # Grok user_message_chunk almost never carries promptId; usage lives on the
+    # next agent/turn_completed event that does. Hold text until then.
+    pending_user: List[Tuple[str, str]] = []
 
     def turn(pid: str) -> dict:
         if pid not in turns:
@@ -188,6 +214,13 @@ def parse_updates(
             pid = meta.get("promptId") or update.get("prompt_id")
             model = umeta.get("modelId") or default_model
             total = meta.get("totalTokens")
+            if pid and pending_user:
+                tpend = turn(pid)
+                for text, uts in pending_user:
+                    if text:
+                        tpend["user_text"].append(text)
+                    tpend["user_ts"] = tpend["user_ts"] or uts
+                pending_user.clear()
             if total is not None and pid:
                 t = turn(pid)
                 try:
@@ -198,13 +231,15 @@ def parse_updates(
                 turn(pid)["model"] = model
 
             if su == "user_message_chunk":
-                if not pid:
-                    pid = f"_nopid_{len(order)}"
-                t = turn(pid)
-                t["user_text"].append(_text_from_content(update.get("content")))
-                t["user_ts"] = t["user_ts"] or ts
-                if model:
-                    t["model"] = model
+                text = _text_from_content(update.get("content"))
+                if pid:
+                    t = turn(pid)
+                    t["user_text"].append(text)
+                    t["user_ts"] = t["user_ts"] or ts
+                    if model:
+                        t["model"] = model
+                else:
+                    pending_user.append((text, ts))
             elif su == "agent_message_chunk":
                 if not pid:
                     continue
@@ -220,7 +255,7 @@ def parse_updates(
             elif su == "tool_call":
                 tool = {
                     "id": update.get("toolCallId") or meta.get("eventId"),
-                    "name": update.get("title") or "unknown",
+                    "name": _canonical_tool_name(update.get("title"), update.get("kind")),
                     "target": _tool_target(update.get("rawInput")),
                     "result_chars": 0,
                     "is_error": 0,
@@ -236,6 +271,7 @@ def parse_updates(
                 status = (update.get("status") or "").lower()
                 is_err = 1 if status in ("failed", "error") else 0
                 target = _tool_target(update.get("rawInput"))
+                canon = _canonical_tool_name(update.get("title"), update.get("kind"))
                 # find tool in turns
                 found = False
                 for t in turns.values():
@@ -247,8 +283,8 @@ def parse_updates(
                                 tool["target"] = target
                             if is_err:
                                 tool["is_error"] = 1
-                            if update.get("title") and tool["name"] in ("unknown", "Other"):
-                                tool["name"] = update.get("title")
+                            if tool["name"] in ("unknown", "Other") and canon != "unknown":
+                                tool["name"] = canon
                             found = True
                             break
                     if found:
@@ -256,7 +292,7 @@ def parse_updates(
                 if not found and tid:
                     orphan_tools.append({
                         "id": tid,
-                        "name": update.get("title") or "unknown",
+                        "name": canon,
                         "target": target,
                         "result_chars": len(body),
                         "is_error": is_err,
@@ -279,6 +315,15 @@ def parse_updates(
                     turn(pid)["agent_id"] = (
                         update.get("agentId") or update.get("sessionId") or meta.get("eventId")
                     )
+
+    if pending_user:
+        pid_flush = order[-1] if order else "_pending"
+        tpend = turn(pid_flush)
+        for text, uts in pending_user:
+            if text:
+                tpend["user_text"].append(text)
+            tpend["user_ts"] = tpend["user_ts"] or uts
+        pending_user.clear()
 
     # Attach orphans to last turn if any
     if orphan_tools and order:

@@ -57,6 +57,12 @@ class CostTests(unittest.TestCase):
         c_cr = cost_for("claude-opus-4-7", self._u(cache_read_tokens=1_000_000), self.p)
         self.assertLess(c_cr["usd"], c_in["usd"])
 
+    def test_grok_46_is_listed_not_estimated(self):
+        c = cost_for("grok-4.6", self._u(input_tokens=1_000_000), self.p)
+        self.assertIsNotNone(c["usd"])
+        self.assertFalse(c["estimated"])
+        self.assertAlmostEqual(c["usd"], self.p["models"]["grok-4.5"]["input"], places=4)
+
 
 class PlanFormatTests(unittest.TestCase):
     def setUp(self):
@@ -90,6 +96,7 @@ class PricingPageModelsTests(unittest.TestCase):
         self.assertTrue(any(m.startswith("claude-") for m in page))
         self.assertTrue(any(m.startswith("grok-") for m in page))
         self.assertIn("grok-4.5", page)
+        self.assertIn("grok-4.6", page)
         self.assertIn("claude-opus-5", page)
         self.assertIn("claude-opus-4-8", page)
         # Page is a subset — legacy/rare IDs stay in models for billing only.

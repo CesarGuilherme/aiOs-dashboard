@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from token_dashboard.db import connect, init_db, overview_totals
+from token_dashboard.db import connect, expensive_prompts, init_db, overview_totals
 from token_dashboard.grok_scanner import (
     _tokens_from_usage,
     parse_updates,
@@ -177,6 +177,74 @@ class TestGrokScanner(unittest.TestCase):
         self.assertEqual(out, 1250)
         self.assertEqual(inp, 65191 - 40704)
 
+    def test_user_chunk_without_prompt_id_inherits_next_turn_usage(self):
+        """Grok user_message_chunk omits promptId; usage lives on the next pid."""
+        sess = Path(self.tmp) / "nopid" / "s1"
+        sess.mkdir(parents=True)
+        pid = "real-prompt-id"
+        lines = [
+            {
+                "timestamp": 1700001000,
+                "params": {
+                    "update": {
+                        "sessionUpdate": "user_message_chunk",
+                        "content": {"type": "text", "text": "how much cache?"},
+                    },
+                    "_meta": {"eventId": "e1"},
+                },
+            },
+            {
+                "timestamp": 1700001001,
+                "params": {
+                    "update": {
+                        "sessionUpdate": "agent_message_chunk",
+                        "content": {"type": "text", "text": "here"},
+                    },
+                    "_meta": {"promptId": pid, "modelId": "grok-4.6"},
+                },
+            },
+            {
+                "timestamp": 1700001002,
+                "params": {
+                    "update": {
+                        "sessionUpdate": "turn_completed",
+                        "prompt_id": pid,
+                        "usage": {
+                            "inputTokens": 8000,
+                            "outputTokens": 40,
+                            "cachedReadTokens": 5000,
+                        },
+                    },
+                    "_meta": {"promptId": pid},
+                },
+            },
+        ]
+        updates = sess / "updates.jsonl"
+        with updates.open("w", encoding="utf-8") as f:
+            for row in lines:
+                f.write(json.dumps(row) + "\n")
+        (sess / "summary.json").write_text(
+            json.dumps({"info": {"id": "s1", "cwd": "/tmp/nopid"}}), encoding="utf-8"
+        )
+        msgs, _ = parse_updates(updates, "s1", "tmp-nopid", "/tmp/nopid", "grok-4.6")
+        users = [m for m in msgs if m["type"] == "user" and m.get("prompt_text")]
+        self.assertEqual(len(users), 1)
+        self.assertEqual(users[0]["prompt_text"], "how much cache?")
+        assts = [m for m in msgs if m["type"] == "assistant" and m["parent_uuid"] == users[0]["uuid"]]
+        self.assertEqual(len(assts), 1)
+        self.assertEqual(assts[0]["cache_read_tokens"], 5000)
+        self.assertEqual(assts[0]["input_tokens"], 3000)
+        self.assertEqual(assts[0]["output_tokens"], 40)
+        self.assertFalse(any("_nopid_" in (m.get("uuid") or "") for m in msgs))
+
+        n = scan_grok_dir(sess.parent, self.db)
+        self.assertGreater(n["messages"], 0)
+        rows = expensive_prompts(self.db, limit=10)
+        grok = [r for r in rows if r["source"] == "grok"]
+        self.assertEqual(len(grok), 1)
+        self.assertEqual(grok[0]["cache_read_tokens"], 5000)
+        self.assertEqual(grok[0]["billable_tokens"], 3040)
+
     def test_parse_turn_completed_usage(self):
         root = Path(self.tmp) / "usage_sessions"
         updates = _write_usage_session(root)
@@ -192,6 +260,77 @@ class TestGrokScanner(unittest.TestCase):
         self.assertEqual(a["cache_create_5m_tokens"], 0)
         self.assertEqual(a["cache_create_1h_tokens"], 0)
         self.assertEqual(a["stop_reason"], "end_turn")
+
+    def test_tool_name_keeps_snake_case_not_human_title(self):
+        sess = Path(self.tmp) / "toolsess" / "s1"
+        sess.mkdir(parents=True)
+        pid = "p1"
+        lines = [
+            {
+                "timestamp": 1700000100,
+                "method": "session/update",
+                "params": {
+                    "update": {
+                        "sessionUpdate": "user_message_chunk",
+                        "content": {"type": "text", "text": "hi"},
+                    },
+                    "_meta": {"promptId": pid, "totalTokens": 10},
+                },
+            },
+            {
+                "timestamp": 1700000101,
+                "method": "session/update",
+                "params": {
+                    "update": {
+                        "sessionUpdate": "tool_call",
+                        "toolCallId": "t1",
+                        "title": "read_file",
+                        "rawInput": {"target_file": "/tmp/x.md"},
+                    },
+                    "_meta": {"promptId": pid},
+                },
+            },
+            {
+                "timestamp": 1700000102,
+                "method": "session/update",
+                "params": {
+                    "update": {
+                        "sessionUpdate": "tool_call_update",
+                        "toolCallId": "t1",
+                        "kind": "read",
+                        "title": "Read `/tmp/x.md`",
+                        "rawInput": {"target_file": "/tmp/x.md"},
+                    },
+                    "_meta": {"promptId": pid},
+                },
+            },
+            {
+                "timestamp": 1700000103,
+                "method": "session/update",
+                "params": {
+                    "update": {
+                        "sessionUpdate": "tool_call_update",
+                        "toolCallId": "t2",
+                        "kind": "execute",
+                        "title": "Execute `ls -la`",
+                        "rawInput": {"command": "ls -la"},
+                        "status": "completed",
+                        "content": {"type": "text", "text": "ok"},
+                    },
+                    "_meta": {"promptId": pid},
+                },
+            },
+        ]
+        updates = sess / "updates.jsonl"
+        with updates.open("w", encoding="utf-8") as f:
+            for row in lines:
+                f.write(json.dumps(row) + "\n")
+        msgs, tools = parse_updates(updates, "s1", "tmp", "/tmp", "grok-4.6")
+        names = {t["tool_name"] for t in tools if t["tool_name"] != "_tool_result"}
+        self.assertIn("read_file", names)
+        self.assertNotIn("Read `/tmp/x.md`", names)
+        self.assertIn("run_terminal_command", names)
+        self.assertTrue(all(len(n) < 80 and " " not in n for n in names))
 
     def test_scan_persists_cache_read(self):
         root = Path(self.tmp) / "usage_sessions"

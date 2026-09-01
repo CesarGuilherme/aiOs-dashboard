@@ -52,16 +52,7 @@ cd aiOs-dashboard
 docker compose up --build
 ```
 
-This mounts `~/.claude` into the container so the dashboard reads your Claude sessions and persists its cache at `~/.claude/token-dashboard.db`. It also live-mounts `web/` so frontend edits appear on browser refresh without a rebuild. Open http://localhost:8181 once the container starts.
-
-> **Grok in Docker:** the default Compose file does **not** mount `~/.grok`. To include Grok sessions, add a volume and env var, for example:
->
-> ```yaml
-> volumes:
->   - ~/.grok:/data/grok
-> environment:
->   - GROK_SESSIONS_DIR=/data/grok/sessions
-> ```
+This mounts `~/.claude` and `~/.grok` into the container so the dashboard reads both agents’ sessions and persists its cache at `~/.claude/token-dashboard.db`. It also live-mounts `web/` so frontend edits appear on browser refresh without a rebuild. Open http://localhost:8181 once the container starts.
 
 ### Run with plain Docker
 
@@ -211,7 +202,7 @@ If you already use Obsidian, you can open the `~/.claude/projects/` folder as a 
 
 **Running the dashboard twice at the same time.** Don't — both processes will fight over the SQLite DB. Stop all instances before starting a new one.
 
-**Grok rows missing in Docker.** Mount `~/.grok` and set `GROK_SESSIONS_DIR` (see Docker section above).
+**Grok rows missing in Docker.** `docker-compose.yml` mounts `~/.grok` and sets `GROK_SESSIONS_DIR`. On a plain `docker run`, add `-v ~/.grok:/data/grok` and `-e GROK_SESSIONS_DIR=/data/grok/sessions`.
 
 ## Accuracy note
 

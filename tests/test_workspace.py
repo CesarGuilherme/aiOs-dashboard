@@ -61,6 +61,26 @@ class WorkspaceScanTests(unittest.TestCase):
         self.assertEqual(scan_workspace(empty),
                          {"applications": [], "routines": [], "skills": []})
 
+    def test_grok_mcp_workflows_and_skills_merge(self):
+        grok = Path(self.tmp.name) / ".grok"
+        grok.mkdir()
+        (grok / "config.toml").write_text(
+            '[mcp_servers.svelte]\ncommand = "npx"\n\n'
+            '[mcp_servers.tasks]\nurl = "http://127.0.0.1"\n\n'
+            '[mcp_servers.tasks.env]\nTOKEN = "x"\n',
+            encoding="utf-8",
+        )
+        (grok / "workflows").mkdir()
+        (grok / "workflows" / "deep-research.rhai").write_text("let meta = #{};\n")
+        (grok / "skills" / "last30days").mkdir(parents=True)
+        (grok / "skills" / "last30days" / "SKILL.md").write_text("# x")
+        ws = scan_workspace(self.claude, grok)
+        apps = {a["name"]: a for a in ws["applications"]}
+        self.assertEqual(apps["svelte"]["scope"], "global")  # Claude global wins
+        self.assertEqual(apps["tasks"]["scope"], "grok")
+        self.assertIn("deep-research", {r["name"] for r in ws["routines"]})
+        self.assertIn("last30days", {s["name"] for s in ws["skills"]})
+
 
 class OpenPathTests(unittest.TestCase):
     def setUp(self):
@@ -79,6 +99,17 @@ class OpenPathTests(unittest.TestCase):
         self.assertFalse(allowed_open_path("/etc/passwd", [self.dev], self.claude))
         sneaky = str(self.dev / ".." / "outside.txt")
         self.assertFalse(allowed_open_path(sneaky, [self.dev], self.claude))
+
+    def test_allowed_open_grok_and_brain_homes(self):
+        grok = Path(self.tmp.name) / ".grok"
+        brain = Path(self.tmp.name) / ".brain"
+        (grok / "docs").mkdir(parents=True)
+        (brain / "global").mkdir(parents=True)
+        (grok / "docs" / "a.md").write_text("g")
+        (brain / "global" / "b.md").write_text("b")
+        self.assertTrue(allowed_open_path(str(grok / "docs" / "a.md"), [self.dev], self.claude, grok, brain))
+        self.assertTrue(allowed_open_path(str(brain / "global" / "b.md"), [self.dev], self.claude, grok, brain))
+        self.assertFalse(allowed_open_path("/etc/passwd", [self.dev], self.claude, grok, brain))
 
 
 if __name__ == "__main__":

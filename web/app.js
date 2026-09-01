@@ -8,7 +8,7 @@ export const $  = (sel, root=document) => root.querySelector(sel);
 export const $$ = (sel, root=document) => Array.from(root.querySelectorAll(sel));
 
 const COMPACT = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 });
-// USD→BRL: filled from /api/overview or /api/plan (mirrors ~/.claude/.usd_brl)
+// USD→BRL: filled from /api/overview or /api/plan (mirrors ~/.brain/.usd_brl)
 let _usdBrl = 5.40;
 export function setUsdBrlRate(r) {
   const n = Number(r);
@@ -41,7 +41,13 @@ export const fmt = {
   },
   modelShort: m => (m || '').replace('claude-', '').replace(/^grok-/, 'grok-'),
   sourceBadge: s => s === 'grok' ? 'grok' : (s === 'claude' ? 'sonnet' : ''),
-  ts: t => (t || '').slice(0, 16).replace('T', ' '),
+  ts: t => {
+    if (!t) return '';
+    const d = new Date(t);
+    if (Number.isNaN(d.getTime())) return String(t).slice(0, 16).replace('T', ' ');
+    const p = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  },
 };
 
 export async function api(path, opts) {

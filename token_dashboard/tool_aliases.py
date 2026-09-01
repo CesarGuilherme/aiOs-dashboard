@@ -17,10 +17,10 @@ FILE_TOOLS = (
 )
 
 # Shell / terminal
-BASH_TOOLS = ("Bash", "run_terminal_command")
+BASH_TOOLS = ("Bash", "run_terminal_command", "Shell")
 
 # Async-wait / poll tools — sleep loops and TaskOutput polling.
-POLL_TOOLS = ("TaskOutput", "get_command_or_subagent_output")
+POLL_TOOLS = ("TaskOutput", "get_command_or_subagent_output", "AwaitShell")
 
 
 def sql_in(names: tuple) -> str:

@@ -116,7 +116,8 @@ class SkillBreakdownTests(unittest.TestCase):
               ('a1','s1','pA','Skill','brainstorming',NULL,'2026-04-10T00:00:30Z',0),
               ('u1','s1','pA','_tool_result','use-124',800,'2026-04-10T00:00:32Z',0),
               ('a2','s2','pA','Skill','create-skill',NULL,'2026-04-11T00:00:01Z',0),
-              ('u2','s2','pA','_tool_result','use-125',1200,'2026-04-11T00:00:02Z',0);
+              ('u2','s2','pA','_tool_result','use-125',1200,'2026-04-11T00:00:02Z',0),
+              ('a2','s2','pA','read_file','/Users/x/.grok/skills/learn/SKILL.md',NULL,'2026-04-11T00:00:03Z',0);
             """)
             c.commit()
 
@@ -126,6 +127,7 @@ class SkillBreakdownTests(unittest.TestCase):
         self.assertEqual(by_name["brainstorming"]["invocations"], 2)
         self.assertEqual(by_name["brainstorming"]["sessions"], 1)
         self.assertEqual(by_name["create-skill"]["invocations"], 1)
+        self.assertEqual(by_name["learn"]["invocations"], 1)
 
     def test_orders_by_invocations(self):
         rows = skill_breakdown(self.db)
@@ -134,7 +136,7 @@ class SkillBreakdownTests(unittest.TestCase):
     def test_respects_since(self):
         rows = skill_breakdown(self.db, since="2026-04-11T00:00:00Z")
         names = [r["skill"] for r in rows]
-        self.assertEqual(names, ["create-skill"])
+        self.assertEqual(set(names), {"create-skill", "learn"})
 
 
 class ProjectNameTests(unittest.TestCase):

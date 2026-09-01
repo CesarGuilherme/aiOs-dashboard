@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from token_dashboard.skills import scan_catalog, _slugs_for
+from token_dashboard.skills import scan_catalog, _slugs_for, _DEFAULT_ROOTS
 
 
 def _write(p: Path, body: str) -> None:
@@ -68,6 +68,26 @@ class CatalogTests(unittest.TestCase):
         # No file written; lookup should return None (server surfaces as tokens_per_call: None)
         cat = scan_catalog([self.tmp / "skills"])
         self.assertNotIn("never-installed", cat)
+
+    def test_grok_user_and_plugin_skills(self):
+        _write(self.tmp / "skills" / "learn" / "SKILL.md", "a" * 40)
+        _write(self.tmp / "bundled" / "skills" / "create-skill" / "SKILL.md", "b" * 80)
+        plug = self.tmp / "installed-plugins" / "ponytail-abc" / "skills" / "ponytail" / "SKILL.md"
+        _write(plug, "c" * 120)
+        cat = scan_catalog([
+            self.tmp / "skills",
+            self.tmp / "bundled" / "skills",
+            self.tmp / "installed-plugins",
+        ])
+        self.assertIn("learn", cat)
+        self.assertIn("create-skill", cat)
+        self.assertIn("ponytail", cat)
+        self.assertEqual(cat["ponytail"]["tokens"], 30)
+
+    def test_default_roots_include_grok(self):
+        joined = " ".join(str(p) for p in _DEFAULT_ROOTS)
+        self.assertIn(".grok", joined)
+        self.assertIn("installed-plugins", joined)
 
 
 if __name__ == "__main__":

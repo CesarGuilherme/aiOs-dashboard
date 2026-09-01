@@ -189,12 +189,12 @@ def overview(ctx: dict) -> str:
     <dt>Session</dt><dd>One agent run — Claude Code JSONL under <code>~/.claude/projects/</code>,
       or a Grok session under <code>~/.grok/sessions/</code>.</dd>
     <dt>Turn</dt><dd>One message you sent.</dd>
-    <dt>Input tokens</dt><dd>New context this turn. Grok: reconstructed from context-size deltas.</dd>
-    <dt>Output tokens</dt><dd>Agent reply text. Grok: estimated from message length.</dd>
-    <dt>Cache read</dt><dd>Tokens re-used from cache (~10× cheaper).</dd>
-    <dt>Cache create</dt><dd>Writing into the cache (Claude only).</dd>
+    <dt>Input tokens</dt><dd>New context this turn. Grok: uncached input from <code>turn_completed.usage</code> when present, else reconstructed.</dd>
+    <dt>Output tokens</dt><dd>Agent reply text. Grok: from usage when present, else estimated from length.</dd>
+    <dt>Cache read</dt><dd>Tokens re-used from cache (~10× cheaper). Claude + Grok (<code>cachedReadTokens</code>).</dd>
+    <dt>Cache create</dt><dd>Writing into the cache (Claude only — Grok does not report create buckets).</dd>
     <dt>Est. cost</dt><dd>Shown in <strong>R$</strong> (USD rates ×
-      <code>~/.claude/.usd_brl</code>). API-equivalent, not subscription math.</dd>
+      <code>~/.brain/.usd_brl</code>). API-equivalent, not subscription math.</dd>
     <dt>Billable tokens</dt><dd>Input + Output + Cache create.</dd>
     <dt>Agent chips</dt><dd>Click <b>claude</b> or <b>grok</b> to filter this page to that agent.
       Click again or <b>all</b> to clear.</dd>
@@ -302,7 +302,8 @@ def skills(ctx: dict) -> str:
         f'<div class="card" style="margin-top:16px"><h3>Top skills (by invocations)</h3>{ch}</div>'
         '<div class="card" style="margin-top:16px"><h3>All skills</h3>'
         '<p class="muted" style="margin:-4px 0 14px;font-size:12px">"Tokens per call" is the size of '
-        "the skill's <code>SKILL.md</code> — what Claude Code loads into context on each invocation.</p>"
+        "the skill's <code>SKILL.md</code> — what the agent loads into context on each invocation. "
+        "Claude: Skill tool. Grok: reads of SKILL.md.</p>"
         + table(
             [("skill", False), ("invocations", True), ("tokens per call", True),
              ("sessions", True), ("last used", False)],

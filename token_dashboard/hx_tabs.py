@@ -171,6 +171,7 @@ def prompts(ctx: dict) -> str:
         # no in-memory row cache, and the full text is in the page for ⌘F.
         '<td class="blur-sensitive"><details><summary>{summary}</summary>'
         "<pre>{full}</pre></details></td>"
+        '<td><span class="badge {sbadge}">{src}</span></td>'
         '<td><span class="badge {mcls}">{model}</span></td>'
         '<td class="num">{billable}</td><td class="num">{cache}</td>'
         "<td>{link}</td></tr>".format(
@@ -178,12 +179,14 @@ def prompts(ctx: dict) -> str:
             col1=e(ts(r["timestamp"])) if sort == "recent" else e(brl(r["estimated_cost_usd"], ctx["rate"], 4)),
             summary=e(short(r["prompt_text"], 110)),
             full=e(r["prompt_text"] or ""),
+            sbadge=source_badge(r.get("source")),
+            src=e(r.get("source") or "claude"),
             mcls=model_class(r["model"]), model=e(model_short(r["model"])),
             billable=i(r["billable_tokens"]), cache=i(r["cache_read_tokens"]),
             link=_session_link(r["session_id"]),
         )
         for r in rows
-    ) or '<tr><td colspan="6" class="muted">no prompts yet</td></tr>'
+    ) or '<tr><td colspan="7" class="muted">no prompts yet</td></tr>'
 
     sub = ("Your latest prompts and the assistant turn each one triggered."
            if sort == "recent" else "The prompts that cost the most tokens.")
@@ -196,7 +199,8 @@ def prompts(ctx: dict) -> str:
         "",
         table(
             [("when" if sort == "recent" else "cache cost", False), ("prompt", False),
-             ("model", False), ("tokens", True), ("cache rd", True), ("session", False)],
+             ("agent", False), ("model", False), ("tokens", True), ("cache rd", True),
+             ("session", False)],
             body,
         ),
         sub=sub + " Expand a row to see the full prompt.",

@@ -7,6 +7,7 @@ services:
     volumes:
       # Map the .claude folder to allow reading transcripts and persisting the DB
       - ~/.claude:/data/claude
+      - ~/.grok:/data/grok
       # Live-mount the static frontend so web/ edits show up on a browser refresh
       # (no rebuild needed; web/ has no build step). Rebuild still required for Python changes.
       - ./web:/app/web
@@ -14,5 +15,6 @@ services:
       - HOST=0.0.0.0
       - PORT=8181
       - CLAUDE_PROJECTS_DIR=/data/claude/projects
+      - GROK_SESSIONS_DIR=/data/grok/sessions
       - TOKEN_DASHBOARD_DB=/data/claude/token-dashboard.db
     restart: always

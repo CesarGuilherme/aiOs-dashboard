@@ -17,7 +17,7 @@ Inspired by [phuryn/claude-usage](https://github.com/phuryn/claude-usage) but di
 
 ## Status
 
-Working codebase. 124 Python unit tests (`python3 -m unittest discover tests`). Eight UI tabs wired up (Overview, Brain, Prompts, Sessions, Projects, Skills, Tips, Settings). Runs on macOS, Windows, and Linux.
+Working codebase. 139 Python unit tests (`python3 -m unittest discover tests`). Eight UI tabs wired up (Overview, Brain, Prompts, Sessions, Projects, Skills, Tips, Settings). Runs on macOS, Windows, and Linux.
 
 **The default UI is now the server-rendered htmx frontend, served at `/`.** The vanilla SPA is untouched and still fully wired at **`/spa`** (linked from the topbar). To switch back, flip the two branches at the top of `do_GET` in `server.py`.
 
@@ -77,7 +77,7 @@ Env vars: `PORT` (default 8181), `HOST` (default 127.0.0.1), `CLAUDE_PROJECTS_DI
 
 ## Known limitations
 
-See `docs/KNOWN_LIMITATIONS.md`. Current summary: Skills `tokens_per_call` is populated only for skills installed under the three scanned roots (`~/.claude/skills/`, `~/.claude/scheduled-tasks/`, `~/.claude/plugins/`); project-local skills and subagent-dispatched skills show invocation counts but blank token counts. Grok cache **read** comes from `turn_completed.usage.cachedReadTokens` when present; cache **create** stays 0 (Grok does not emit create buckets).
+See `docs/KNOWN_LIMITATIONS.md`. Current summary: Skills counts Claude `Skill` plus Grok `SKILL.md` reads; `tokens_per_call` comes from `~/.claude/{skills,scheduled-tasks,plugins}` and `~/.grok/{skills,bundled/skills,installed-plugins}`. Project-local and Task-dispatched skills may show counts but blank token counts. Grok cache **read** comes from `turn_completed.usage.cachedReadTokens` when present; cache **create** stays 0 (Grok does not emit create buckets). Brain effectiveness / ROI extraction cost remain Claude-hook-only.
 
 ## Verifying changes
 

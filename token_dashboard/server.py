@@ -297,8 +297,11 @@ def build_handler(db_path: str, projects_dir: str, grok_sessions_dir: str | None
                 if "application/json" not in (self.headers.get("Content-Type") or ""):
                     self.send_response(403); self.end_headers(); return
                 target = str(body.get("path", ""))
-                claude_dir = Path.home() / ".claude"
-                if not allowed_open_path(target, workspace_roots(), claude_dir):
+                home = Path.home()
+                if not allowed_open_path(
+                    target, workspace_roots(),
+                    home / ".claude", home / ".grok", home / ".brain",
+                ):
                     self.send_response(403)
                     self.end_headers()
                     return

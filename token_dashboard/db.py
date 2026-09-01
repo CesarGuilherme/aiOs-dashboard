@@ -15,6 +15,7 @@ from .naming import (
     _walk_to_root,
     get_labels as _get_labels,  # internal, for backward compat in this file
 )
+from .tool_aliases import READ_TOOLS, sql_in
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS files (
@@ -392,27 +393,47 @@ def daily_token_breakdown(db_path, since=None, until=None, source: Optional[str]
 def skill_breakdown(db_path, since=None, until=None) -> list:
     """Per-skill invocation counts, distinct sessions, last-used timestamp.
 
-    Token attribution per skill is not included: in Claude Code, a Skill's
-    content is loaded via a system-reminder on the next turn, not as the
-    tool_result body — so `result_tokens` on _tool_result rows reflects the
-    activation ack (tiny), not the skill definition (which is what actually
-    fills context). A future schema change (storing tool_use_id on the
-    invocation row) could enable precise attribution; for now we only expose
-    the reliable counts.
+    Claude: Skill tool target. Grok: read of a SKILL.md (parent dir = name).
+    Token attribution per skill is not included: skill content is loaded into
+    context, not as the tool_result body, so we only expose counts.
     """
     rng, args = _range_clause(since, until)
     sql = f"""
-      SELECT target AS skill,
-             COUNT(*) AS invocations,
-             COUNT(DISTINCT session_id) AS sessions,
-             MAX(timestamp) AS last_used
+      SELECT tool_name, target, session_id, timestamp
         FROM tool_calls
-       WHERE tool_name = 'Skill' AND target IS NOT NULL AND target != '' {rng}
-       GROUP BY target
-       ORDER BY invocations DESC
+       WHERE (
+             (tool_name = 'Skill' AND target IS NOT NULL AND target != '')
+          OR (tool_name {sql_in(READ_TOOLS)}
+              AND lower(replace(target, '\\', '/')) LIKE '%/skill.md')
+       ) {rng}
     """
+    agg: dict = {}
     with connect(db_path) as c:
-        return [dict(r) for r in c.execute(sql, args)]
+        for r in c.execute(sql, args):
+            if r["tool_name"] == "Skill":
+                name = r["target"]
+            else:
+                name = Path(str(r["target"]).replace("\\", "/")).parent.name
+            if not name:
+                continue
+            slot = agg.setdefault(name, {
+                "skill": name, "invocations": 0, "sessions": set(), "last_used": None,
+            })
+            slot["invocations"] += 1
+            slot["sessions"].add(r["session_id"])
+            ts = r["timestamp"]
+            if ts and (slot["last_used"] is None or ts > slot["last_used"]):
+                slot["last_used"] = ts
+    out = []
+    for s in agg.values():
+        out.append({
+            "skill": s["skill"],
+            "invocations": s["invocations"],
+            "sessions": len(s["sessions"]),
+            "last_used": s["last_used"],
+        })
+    out.sort(key=lambda r: -r["invocations"])
+    return out
 
 
 def model_breakdown(db_path, since=None, until=None, source: Optional[str] = None) -> list:

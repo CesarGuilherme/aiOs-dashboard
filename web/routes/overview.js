@@ -311,7 +311,7 @@ export default async function (root) {
         <dt>Output tokens</dt><dd>Agent reply text. Claude: billed output. Grok: estimated from message length.</dd>
         <dt>Cache read</dt><dd>Tokens re-used from cache (~10× cheaper). Claude + Grok (from <code>turn_completed.usage</code>).</dd>
         <dt>Cache create</dt><dd>Writing into the cache (Claude only — Grok does not report create buckets).</dd>
-        <dt>Est. cost</dt><dd>Shown in <strong>R$</strong> (USD rates × <code>~/.claude/.usd_brl</code>). API-equivalent, not subscription math.</dd>
+        <dt>Est. cost</dt><dd>Shown in <strong>R$</strong> (USD rates × <code>~/.brain/.usd_brl</code>). API-equivalent, not subscription math.</dd>
         <dt>Billable tokens</dt><dd>Input + Output + Cache create. Cache reads are billed separately (and much cheaper).</dd>
         <dt>Agent chips</dt><dd>Click <b>claude</b> or <b>grok</b> to filter every KPI and chart on this page to that agent. Click again or <b>all</b> to clear.</dd>
       </dl>

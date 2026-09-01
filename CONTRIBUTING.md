@@ -43,10 +43,9 @@ CSV exports already exist for prompts and projects (`GET /api/prompts.csv`, `GET
 
 ## Ideas that would genuinely help
 
-- Broadening the Skills catalog scan to cover project-local `.claude/skills/` directories (closes the known limitation).
+- Broadening the Skills catalog scan to cover project-local `.claude/skills/` / `.grok/skills/` directories.
 - UI buttons / links for the existing CSV endpoints (and optional JSON export of other routes).
 - Richer session filters beyond Overview's range + source chips.
-- Mount `~/.grok` in the default `docker-compose.yml` (documented in the README today).
 - A GitHub Actions workflow that runs the tests on push.
 
 ## What we're not looking for

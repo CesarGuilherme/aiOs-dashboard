@@ -1,11 +1,12 @@
 """Scan agent homes for the agentic layers the Brain rings visualize.
 
-Applications = MCP servers in ~/.claude.json (+ Grok project mcps if present);
-Routines = Claude scheduled tasks; Skills = Claude + Grok skills/plugins.
+Applications = MCP servers in ~/.claude.json plus [mcp_servers.*] in ~/.grok/config.toml;
+Routines = Claude scheduled-tasks + Grok ~/.grok/workflows; Skills = Claude + Grok.
 Every missing path yields an empty list — the endpoint must never 500.
 """
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -19,13 +20,18 @@ def workspace_roots() -> list:
     return [Path(p).expanduser() for p in raw.split(":") if p.strip()]
 
 
-def allowed_open_path(path_str: str, roots: list, claude_dir: Path) -> bool:
+def allowed_open_path(path_str: str, roots: list, *homes: Path) -> bool:
     try:
         p = Path(path_str).resolve()
     except OSError:
         return False
-    for base in list(roots) + [claude_dir]:
-        base = base.resolve()
+    for base in list(roots) + list(homes):
+        if not base:
+            continue
+        try:
+            base = Path(base).resolve()
+        except OSError:
+            continue
         if p == base or base in p.parents:
             return True
     return False
@@ -38,6 +44,9 @@ def open_on_device(path_str: str) -> None:
         os.startfile(path_str)  # noqa — windows only
     else:
         subprocess.run(["xdg-open", path_str], check=False)
+
+
+_MCP_HDR = re.compile(r"^\[mcp_servers\.([^\]]+)\]")
 
 
 def _applications(claude_dir: Path) -> list:
@@ -55,6 +64,26 @@ def _applications(claude_dir: Path) -> list:
     return sorted(seen.values(), key=lambda a: a["name"])
 
 
+def _grok_applications(grok_dir: Path) -> list:
+    cfg = grok_dir / "config.toml"
+    try:
+        text = cfg.read_text(encoding="utf-8")
+    except OSError:
+        return []
+    seen = {}
+    for line in text.splitlines():
+        s = line.strip()
+        if not s or s.startswith("#"):
+            continue
+        m = _MCP_HDR.match(s)
+        if not m:
+            continue
+        name = m.group(1).split(".", 1)[0]
+        if name:
+            seen[name] = {"name": name, "scope": "grok"}
+    return sorted(seen.values(), key=lambda a: a["name"])
+
+
 def _routines(claude_dir: Path) -> list:
     root = claude_dir / "scheduled-tasks"
     if not root.is_dir():
@@ -67,6 +96,19 @@ def _routines(claude_dir: Path) -> list:
             out.append({"name": child.name})
         elif child.suffix == ".md":
             out.append({"name": child.stem})
+    return out
+
+
+def _grok_routines(grok_dir: Path) -> list:
+    out = []
+    for root in (grok_dir / "workflows", grok_dir / "bundled" / "workflows"):
+        if not root.is_dir():
+            continue
+        for child in sorted(root.iterdir()):
+            if child.name.startswith("."):
+                continue
+            if child.suffix == ".rhai":
+                out.append({"name": child.stem})
     return out
 
 
@@ -100,18 +142,26 @@ def _grok_skills(grok_dir: Path) -> list:
     return sorted(seen.values(), key=lambda s: s["name"])
 
 
+def _merge_named(base: list, extra: list, key: str = "name") -> list:
+    have = {x[key] for x in base}
+    out = list(base)
+    for item in extra:
+        if item[key] not in have:
+            out.append(item)
+            have.add(item[key])
+    return sorted(out, key=lambda x: x[key])
+
+
 def scan_workspace(claude_dir: Path, grok_dir: Path | None = None) -> dict:
     skills = _skills(claude_dir)
+    apps = _applications(claude_dir)
+    routines = _routines(claude_dir)
     if grok_dir is not None:
-        # merge Grok skills without clobbering Claude names already present
-        have = {s["name"] for s in skills}
-        for s in _grok_skills(grok_dir):
-            if s["name"] not in have:
-                skills.append(s)
-                have.add(s["name"])
-        skills = sorted(skills, key=lambda s: s["name"])
+        skills = _merge_named(skills, _grok_skills(grok_dir))
+        apps = _merge_named(apps, _grok_applications(grok_dir))
+        routines = _merge_named(routines, _grok_routines(grok_dir))
     return {
-        "applications": _applications(claude_dir),
-        "routines": _routines(claude_dir),
+        "applications": apps,
+        "routines": routines,
         "skills": skills,
     }

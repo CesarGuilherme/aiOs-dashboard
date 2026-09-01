@@ -61,7 +61,17 @@ def short(s, n: int = 80) -> str:
 
 
 def ts(t) -> str:
-    return ("" if t is None else str(t))[:16].replace("T", " ")
+    """Wall-clock local time. Stored values are UTC ISO."""
+    if not t:
+        return ""
+    raw = str(t).strip()
+    try:
+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone().strftime("%Y-%m-%d %H:%M")
+    except ValueError:
+        return raw[:16].replace("T", " ")
 
 
 def model_class(m) -> str:
