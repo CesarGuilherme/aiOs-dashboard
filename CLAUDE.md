@@ -9,8 +9,8 @@ Guidance for Claude Code when working in this repository.
 Inspired by [phuryn/claude-usage](https://github.com/phuryn/claude-usage) but diverges in UI (vanilla JS + ECharts, JARVIS HUD theme, hash router, SSE soft refresh) and scope (expensive-prompt drill-down, skills view, tips engine, Second brain graph, streaming-snapshot dedup). See `docs/inspiration.md` for the original's feature set and known limitations.
 
 ### Session contract (do not re-derive)
-- **What it is:** local stdlib-only CLI + SQLite cache + vanilla `web/` SPA (hash router, no build). Serves on `127.0.0.1:8181`; UI costs in **R$** via `~/.claude/.usd_brl`.
-- **Data plane:** `scan_all` every 30s → Claude JSONL + Grok sessions → `~/.claude/token-dashboard.db`; APIs under `/api/*`; Brain from `~/.claude/projects/*/memory/` + global memory.
+- **What it is:** local stdlib-only CLI + SQLite cache + vanilla `web/` SPA (hash router, no build). Serves on `127.0.0.1:8181`; UI costs in **R$** via `~/.brain/.usd_brl`.
+- **Data plane:** `scan_all` every 30s → Claude JSONL + Grok sessions → `~/.brain/token-dashboard.db`; APIs under `/api/*`; Brain from `~/.brain/projects/` + `~/.brain/global`.
 - **Live UI:** SSE `/api/stream` may emit `scan`; client **soft-refreshes** only (Overview `export refresh`); full remount is **navigation-only**; Brain never auto-refreshes. `/api/stream` fans out to **one queue per connected client** (`_publish` / `_subscribe`) — a single shared queue handed each event to exactly one client.
 - **Dedup:** assistant billing key is `(session_id, message_id)`, not top-level `uuid` (streaming snapshots).
 - **Touch carefully:** `web/app.js` router/SSE, `web/charts.js` instance reuse, `web/rings.js` teardown, `token_dashboard/server.py` `_scan_loop` — do not “fix” live updates by remounting tabs.

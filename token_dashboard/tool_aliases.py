@@ -19,6 +19,9 @@ FILE_TOOLS = (
 # Shell / terminal
 BASH_TOOLS = ("Bash", "run_terminal_command")
 
+# Async-wait / poll tools — sleep loops and TaskOutput polling.
+POLL_TOOLS = ("TaskOutput", "get_command_or_subagent_output")
+
 
 def sql_in(names: tuple) -> str:
     """Return `IN ('a','b')` fragment — names are code constants, not user input."""

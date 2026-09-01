@@ -9,6 +9,7 @@ from pathlib import Path
 
 from token_dashboard.db import init_db, default_db_path, overview_totals
 from token_dashboard.scanner import scan_all
+from token_dashboard.memory_parsing import memory_projects_dir
 from token_dashboard.tips import all_tips
 
 
@@ -73,7 +74,7 @@ def cmd_stats(args):
 def cmd_tips(args):
     db = _db_path(args)
     init_db(db)
-    tips = all_tips(db, _projects(args))
+    tips = all_tips(db, memory_projects_dir(_projects(args)))
     if not tips:
         print("Token Dashboard: no suggestions")
         return
@@ -100,7 +101,7 @@ def cmd_dashboard(args):
 
 def main():
     common = argparse.ArgumentParser(add_help=False)
-    common.add_argument("--db", help="SQLite path (default ~/.claude/token-dashboard.db)")
+    common.add_argument("--db", help="SQLite path (default ~/.brain/token-dashboard.db)")
     common.add_argument("--projects-dir", help="Claude JSONL root (default ~/.claude/projects)")
     common.add_argument("--grok-sessions-dir", help="Grok sessions root (default ~/.grok/sessions)")
 

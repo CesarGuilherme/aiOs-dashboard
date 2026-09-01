@@ -126,10 +126,10 @@ python3 cli.py dashboard --projects-dir /path/to/projects --db /path/to/cache.db
 | `HOST` | `127.0.0.1` | Bind address. Keep the default. Setting `0.0.0.0` exposes your entire prompt history to anyone on your local network — don't do this on any network you don't fully control (no coffee-shop Wi-Fi, no coworking spaces). |
 | `CLAUDE_PROJECTS_DIR` | `~/.claude/projects` | Claude Code session JSONL root |
 | `GROK_SESSIONS_DIR` | `~/.grok/sessions` | Grok CLI sessions root (`updates.jsonl` per session) |
-| `TOKEN_DASHBOARD_DB` | `~/.claude/token-dashboard.db` | SQLite cache location |
-| `USD_BRL` | (file / 5.40) | Override USD→BRL rate; default reads `~/.claude/.usd_brl` |
+| `TOKEN_DASHBOARD_DB` | `~/.brain/token-dashboard.db` | SQLite cache location |
+| `USD_BRL` | (file / 5.40) | Override USD→BRL rate; default reads `~/.brain/.usd_brl` |
 
-Pricing lives in [`pricing.json`](pricing.json) (USD per 1M tokens). The UI converts to **R$** via the statusline rate file. Shared durable memory (Second Brain) stays under `~/.claude/projects/*/memory/` + `~/.claude/memory/global/` for every agent.
+Pricing lives in [`pricing.json`](pricing.json) (USD per 1M tokens). The UI converts to **R$** via the statusline rate file. Shared durable memory (Second Brain) lives under `~/.brain/projects/` + `~/.brain/global/` for every agent.
 
 CSV exports (stdlib, no extra deps): `GET /api/prompts.csv` and `GET /api/projects.csv`.
 

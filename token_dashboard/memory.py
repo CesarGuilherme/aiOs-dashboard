@@ -1,7 +1,7 @@
 """Brain: live reader for the multi-agent Second Brain memory dirs + suggestions.
 
-Reads ~/.claude/projects/*/memory/*.md straight off disk on every request — the
-files are the shared source of truth for Claude, Grok, and other agents.
+Reads ~/.brain/projects/<slug>/*.md (and the global tier) straight off disk on
+every request — the files are the shared source of truth for every agent.
 Suggestions reuse SQLite tool data to spot knowledge agents keep re-deriving.
 """
 from __future__ import annotations
@@ -16,12 +16,13 @@ from .db import connect, daily_token_breakdown
 from .memory_parsing import (
     _read_mem_dir,
     get_coverage,
-    GLOBAL_MEM_DIR,
     GLOBAL_SLUG,
     SPECIAL_FILES,
     LEARNING_HEAD_RE,
     _parse_frontmatter,
     _iso,
+    iter_mem_dirs,
+    global_mem_dir,
 )
 from .naming import (
     best_project_name,
@@ -154,19 +155,17 @@ def memory_effectiveness(db_path: str, min_injections: int = 3) -> dict:
 
 
 def get_brain(projects_dir: str, db_path: str, pricing: Optional[dict] = None) -> dict:
-    root = Path(projects_dir)
     projects: List[dict] = []
     all_entries: List[dict] = []
     covered_by_slug: dict = {}
 
-    mem_dirs = sorted(root.glob("*/memory")) if root.is_dir() else []
-    slugs = [d.parent.name for d in mem_dirs]
+    targets: List[Tuple[Path, str]] = list(iter_mem_dirs(projects_dir))
+    slugs = [slug for _, slug in targets]
     labels = get_labels(db_path, slugs)
 
-    # Project dirs plus the global tier (rendered as a pseudo-project "Global").
-    targets: List[Tuple[Path, str]] = [(d, d.parent.name) for d in mem_dirs]
-    if GLOBAL_MEM_DIR.is_dir():
-        targets.append((GLOBAL_MEM_DIR, GLOBAL_SLUG))
+    g = global_mem_dir(projects_dir)
+    if g is not None:
+        targets.append((g, GLOBAL_SLUG))
 
     for mem_dir, slug in targets:
         entries, learnings, covered_blob = _read_mem_dir(mem_dir, slug)
@@ -425,7 +424,13 @@ def _resolve_memory_file(projects_dir: str, slug: str, filename: str) -> Optiona
         return None
     if not filename.endswith(".md"):
         return None
-    mem_dir = (Path(projects_dir) / slug / "memory").resolve()
+    root = Path(projects_dir)
+    if slug == GLOBAL_SLUG:
+        candidate = root.parent / "global" if root.name == "projects" else root / "global"
+    else:
+        nested = root / slug / "memory"
+        candidate = nested if nested.is_dir() else root / slug
+    mem_dir = candidate.resolve()
     target = (mem_dir / filename).resolve()
     if mem_dir not in target.parents or not target.is_file():
         return None

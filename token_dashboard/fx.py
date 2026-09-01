@@ -1,4 +1,4 @@
-"""USD→BRL rate for display. Mirrors ~/.claude/statusline.sh contract."""
+"""USD→BRL rate for display. File lives next to the Brain (`~/.brain/.usd_brl`)."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Union
 
 DEFAULT_USD_BRL = 5.40
-RATE_FILE = Path.home() / ".claude" / ".usd_brl"
+RATE_FILE = Path.home() / ".brain" / ".usd_brl"
 
 
 def usd_brl_rate(path: Union[str, Path, None] = None) -> float:

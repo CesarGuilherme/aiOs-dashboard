@@ -20,6 +20,7 @@ from .db import (
 from .pricing import load_pricing, cost_for, get_plan, set_plan
 from .tips import all_tips, dismiss_tip
 from .memory import get_brain, quarantine_memory, promote_memory
+from .memory_parsing import memory_projects_dir
 from .fx import usd_brl_rate
 from .scanner import scan_all
 from .skills import cached_catalog
@@ -116,6 +117,8 @@ def _serve_static(handler, rel: str) -> None:
 
 
 def build_handler(db_path: str, projects_dir: str, grok_sessions_dir: str | None = None):
+    mem_root = memory_projects_dir(projects_dir)
+
     class H(http.server.BaseHTTPRequestHandler):
         def log_message(self, fmt, *args):
             pass
@@ -139,7 +142,7 @@ def build_handler(db_path: str, projects_dir: str, grok_sessions_dir: str | None
                 return _serve_static(self, path[5:])
             if path in ("/", "/hx") or path.startswith("/hx/"):
                 from . import hx_views
-                return hx_views.handle(self, path, qs, db_path, projects_dir, pricing)
+                return hx_views.handle(self, path, qs, db_path, mem_root, pricing)
             if path == "/api/overview":
                 totals = overview_totals(db_path, since, until, source=source)
                 cost_usd = 0.0
@@ -222,9 +225,9 @@ def build_handler(db_path: str, projects_dir: str, grok_sessions_dir: str | None
                 sid = path.rsplit("/", 1)[1]
                 return _send_json(self, session_turns(db_path, sid))
             if path == "/api/tips":
-                return _send_json(self, all_tips(db_path, projects_dir))
+                return _send_json(self, all_tips(db_path, mem_root))
             if path == "/api/brain":
-                return _send_json(self, get_brain(projects_dir, db_path, pricing))
+                return _send_json(self, get_brain(mem_root, db_path, pricing))
             if path == "/api/workspace":
                 return _send_json(self, scan_workspace(Path.home() / ".claude", Path.home() / ".grok"))
             if path == "/api/plan":
@@ -271,7 +274,7 @@ def build_handler(db_path: str, projects_dir: str, grok_sessions_dir: str | None
                 raw = self.rfile.read(length).decode("utf-8", "replace") if length else ""
                 form = {k: v[0] for k, v in parse_qs(raw).items()}
                 from . import hx_views
-                return hx_views.handle_post(self, url.path, form, db_path, projects_dir)
+                return hx_views.handle_post(self, url.path, form, db_path, mem_root)
             try:
                 body = json.loads(self.rfile.read(length) or b"{}") if length else {}
             except json.JSONDecodeError:
@@ -285,10 +288,10 @@ def build_handler(db_path: str, projects_dir: str, grok_sessions_dir: str | None
                 dismiss_tip(db_path, body.get("key", ""))
                 return _send_json(self, {"ok": True})
             if url.path == "/api/brain/remove":
-                res = quarantine_memory(projects_dir, body.get("slug", ""), body.get("file", ""))
+                res = quarantine_memory(mem_root, body.get("slug", ""), body.get("file", ""))
                 return _send_json(self, res, status=200 if res.get("ok") else 404)
             if url.path == "/api/brain/keep":
-                res = promote_memory(projects_dir, body.get("slug", ""), body.get("file", ""))
+                res = promote_memory(mem_root, body.get("slug", ""), body.get("file", ""))
                 return _send_json(self, res, status=200 if res.get("ok") else 404)
             if url.path == "/api/open":
                 if "application/json" not in (self.headers.get("Content-Type") or ""):

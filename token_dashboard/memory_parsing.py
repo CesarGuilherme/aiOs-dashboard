@@ -1,4 +1,4 @@
-"""Parsing helpers for Claude memory files (MEMORY.md, *.md in memory dirs, LEARNINGS.md).
+"""Parsing helpers for Brain memory files (MEMORY.md, *.md in memory dirs, LEARNINGS.md).
 
 Extracted from memory.py to keep the main file focused and under size limits.
 These are pure (or near-pure) functions that turn text on disk into structured data.
@@ -6,21 +6,58 @@ These are pure (or near-pure) functions that turn text on disk into structured d
 
 from __future__ import annotations
 
+import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Iterable, List, Optional, Tuple
 
 LINK_RE = re.compile(r"\[\[([^\]\n]+)\]\]")
 LEARNING_HEAD_RE = re.compile(r"^##\s+(\d{4}-\d{2}-\d{2})\s*[—–-]*\s*(.*)$")
 
 SPECIAL_FILES = {"MEMORY.md", "LEARNINGS.md", "AUDIT.md"}
 
-# The global memory tier (~/.claude/memory/global/) loads in every Claude session
-# via the read-path hooks. It lives outside ~/.claude/projects/, so surface it
-# here as a pseudo-project ("Global") rather than letting it stay invisible.
-GLOBAL_MEM_DIR = Path.home() / ".claude" / "memory" / "global"
+# Global tier lives at ~/.brain/global (sibling of ~/.brain/projects).
+# Tests pass a tmp projects root; we only attach Global when that sibling exists.
 GLOBAL_SLUG = "global"
+
+
+def brain_root() -> Path:
+    return Path(os.environ.get("BRAIN_DIR", Path.home() / ".brain")).expanduser()
+
+
+def memory_projects_dir(fallback: str) -> str:
+    """Canonical Brain project store, else the caller’s Claude-layout path."""
+    p = brain_root() / "projects"
+    return str(p) if p.is_dir() else fallback
+
+
+def iter_mem_dirs(projects_dir: str) -> Iterable[tuple[Path, str]]:
+    """Yield (mem_dir, slug) for one Brain/Claude memory layout.
+
+    New: `projects_dir` is `~/.brain/projects` and each child dir is a store.
+    Compat/tests: `projects_dir/*/memory`.
+    """
+    root = Path(projects_dir)
+    if not root.is_dir():
+        return
+    nested = sorted(p for p in root.glob("*/memory") if p.is_dir())
+    if nested:
+        for d in nested:
+            yield d, d.parent.name
+        return
+    for d in sorted(root.iterdir()):
+        if d.is_dir() and not d.name.startswith("."):
+            yield d, d.name
+
+
+def global_mem_dir(projects_dir: str) -> Optional[Path]:
+    """`../global` when `projects_dir` is a `projects/` folder (Brain layout)."""
+    root = Path(projects_dir)
+    if root.name != "projects":
+        return None
+    g = root.parent / "global"
+    return g if g.is_dir() else None
 
 
 def _iso(mtime: float) -> str:
@@ -82,18 +119,15 @@ def get_coverage(projects_dir: str) -> dict:
     Standalone version of what get_brain builds inline, for callers (tips.py)
     that only need to know whether a file is already memorized.
     """
-    root = Path(projects_dir)
     out: dict = {}
-    if not root.is_dir():
-        return out
-    for mem_dir in root.glob("*/memory"):
+    for mem_dir, slug in iter_mem_dirs(projects_dir):
         texts = []
         for f in mem_dir.glob("*.md"):
             try:
                 texts.append(f.read_text(encoding="utf-8", errors="replace").lower())
             except OSError:
                 continue
-        out[mem_dir.parent.name] = "\n".join(texts)
+        out[slug] = "\n".join(texts)
     return out
 
 

@@ -111,7 +111,7 @@ CREATE INDEX IF NOT EXISTS idx_mem_usage_session ON memory_usage(session_id);
 
 
 def default_db_path() -> Path:
-    return Path.home() / ".claude" / "token-dashboard.db"
+    return Path.home() / ".brain" / "token-dashboard.db"
 
 
 def init_db(path: Union[str, Path]) -> None:

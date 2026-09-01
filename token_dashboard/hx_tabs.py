@@ -205,8 +205,8 @@ def prompts(ctx: dict) -> str:
 
 # ---------------------------------------------------------------- tips
 
-_EMPTY_TIPS = ('<p class="muted">No suggestions right now. AI-Dashboard surfaces patterns '
-               "weekly — check back after more activity.</p>")
+_EMPTY_TIPS = ('<p class="muted">No waste patterns right now. Check back after more '
+               "sessions — new-memory suggestions live on Brain.</p>")
 
 
 def tips(ctx: dict) -> str:
@@ -216,8 +216,9 @@ def tips(ctx: dict) -> str:
     items = "".join(tip_block(t) for t in rows)
     return (
         '<div class="card" id="tips-card"><h2>Suggestions</h2>'
-        '<p class="muted" style="margin:-8px 0 14px">Rule-based pattern detection over the '
-        "last 7 days. Dismissed tips re-appear after 14 days.</p>" + items + "</div>"
+        '<p class="muted" style="margin:-8px 0 14px">Waste and behavior patterns from recent '
+        "sessions (7–30 days depending on the rule). Dismissed tips re-appear after 14 days. "
+        "New-memory suggestions live on Brain.</p>" + items + "</div>"
     )
 
 
