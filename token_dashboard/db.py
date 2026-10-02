@@ -58,6 +58,8 @@ CREATE INDEX IF NOT EXISTS idx_messages_project   ON messages(project_slug);
 CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp);
 CREATE INDEX IF NOT EXISTS idx_messages_model     ON messages(model);
 CREATE INDEX IF NOT EXISTS idx_messages_msgid     ON messages(session_id, message_id);
+CREATE INDEX IF NOT EXISTS idx_messages_sess_type ON messages(session_id, type, timestamp);
+CREATE INDEX IF NOT EXISTS idx_messages_parent    ON messages(parent_uuid);
 
 CREATE TABLE IF NOT EXISTS tool_calls (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -260,6 +262,12 @@ def overview_totals(db_path, since=None, until=None, source: Optional[str] = Non
 def expensive_prompts(db_path, limit: int = 50, sort: str = "tokens") -> list:
     """User prompt joined with the immediately-following assistant turn's tokens.
 
+    Direct `parent_uuid` child first (Grok; a reply may land after a steering
+    prompt). Otherwise matched by session + time: Claude Code chains `attachment`
+    records between prompt and reply, and snapshot dedup keeps only the last
+    record of a multi-block reply, whose parent was evicted. That reply must land
+    before the session's next prompt, so an unanswered prompt doesn't steal it.
+
     sort="tokens" (default) → largest billable first.
     sort="recent"           → newest first.
     """
@@ -272,7 +280,16 @@ def expensive_prompts(db_path, limit: int = 50, sort: str = "tokens") -> list:
                +COALESCE(a.cache_create_5m_tokens,0)+COALESCE(a.cache_create_1h_tokens,0) AS billable_tokens,
              COALESCE(a.cache_read_tokens,0) AS cache_read_tokens
         FROM messages u
-        JOIN messages a ON a.parent_uuid = u.uuid AND a.type='assistant'
+        JOIN messages a ON a.uuid = COALESCE((
+          SELECT c.uuid FROM messages c
+           WHERE c.parent_uuid = u.uuid AND c.type='assistant' LIMIT 1), (
+          SELECT r.uuid FROM messages r
+           WHERE r.session_id = u.session_id AND r.type='assistant' AND r.timestamp >= u.timestamp
+             AND r.timestamp < COALESCE((
+               SELECT MIN(n.timestamp) FROM messages n
+                WHERE n.session_id = u.session_id AND n.type='user'
+                  AND n.prompt_text IS NOT NULL AND n.timestamp > u.timestamp), '~')
+           ORDER BY r.timestamp LIMIT 1))
        WHERE u.type='user' AND u.prompt_text IS NOT NULL
        ORDER BY {order}
        LIMIT ?

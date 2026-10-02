@@ -49,6 +49,39 @@ class QueryTests(unittest.TestCase):
         self.assertEqual(rows[0]["prompt_text"], "small")
         self.assertEqual(rows[1]["prompt_text"], "big prompt")
 
+    def test_expensive_prompts_skips_attachment_records(self):
+        # Claude Code chains attachment records between a prompt and its reply.
+        with connect(self.db) as c:
+            c.executescript("""
+            INSERT INTO messages (uuid, parent_uuid, session_id, project_slug, type, timestamp, model,
+              input_tokens, output_tokens, prompt_text, prompt_chars)
+            VALUES
+              ('u3',NULL,'s3','projA','user','2026-04-12T00:00:00Z',NULL,0,0,'with attachments',16),
+              ('t1','u3','s3','projA','attachment','2026-04-12T00:00:00Z',NULL,0,0,NULL,NULL),
+              ('t2','t1','s3','projA','attachment','2026-04-12T00:00:00Z',NULL,0,0,NULL,NULL),
+              ('a3','t2','s3','projA','assistant','2026-04-12T00:00:01Z','claude-opus-4-7',7,3,NULL,NULL);
+            """)
+            c.commit()
+        rows = {r["prompt_text"]: r for r in expensive_prompts(self.db, limit=10)}
+        self.assertEqual(rows["with attachments"]["assistant_uuid"], "a3")
+        self.assertEqual(rows["with attachments"]["billable_tokens"], 10)
+
+    def test_expensive_prompts_reply_parent_evicted_by_dedup(self):
+        # Dedup kept only the last block of the reply; its parent row is gone.
+        with connect(self.db) as c:
+            c.executescript("""
+            INSERT INTO messages (uuid, parent_uuid, session_id, project_slug, type, timestamp, model,
+              input_tokens, output_tokens, prompt_text, prompt_chars)
+            VALUES
+              ('u4',NULL,'s4','projA','user','2026-04-13T00:00:00Z',NULL,0,0,'unanswered',10),
+              ('u5','u4','s4','projA','user','2026-04-13T00:01:00Z',NULL,0,0,'answered',8),
+              ('a5','gone','s4','projA','assistant','2026-04-13T00:01:02Z','claude-opus-4-7',4,4,NULL,NULL);
+            """)
+            c.commit()
+        rows = {r["prompt_text"]: r for r in expensive_prompts(self.db, limit=10)}
+        self.assertEqual(rows["answered"]["assistant_uuid"], "a5")
+        self.assertNotIn("unanswered", rows)
+
     def test_project_summary_groups(self):
         rows = project_summary(self.db)
         slugs = {r["project_slug"]: r for r in rows}
