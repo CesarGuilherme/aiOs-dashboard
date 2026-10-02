@@ -63,6 +63,16 @@ class CostTests(unittest.TestCase):
         self.assertFalse(c["estimated"])
         self.assertAlmostEqual(c["usd"], self.p["models"]["grok-4.5"]["input"], places=4)
 
+    def test_grok_47_matches_published_short_context_rates(self):
+        # docs.x.ai pricing: grok-4.7 below 200k prompt tokens.
+        rates = self.p["models"]["grok-4.7"]
+        self.assertEqual(rates["input"], 2.00)
+        self.assertEqual(rates["output"], 6.00)
+        self.assertEqual(rates["cache_read"], 0.50)
+        c = cost_for("grok-4.7", self._u(input_tokens=1_000_000, output_tokens=1_000_000), self.p)
+        self.assertFalse(c["estimated"])
+        self.assertAlmostEqual(c["usd"], 8.00, places=4)
+
 
 class PlanFormatTests(unittest.TestCase):
     def setUp(self):
@@ -97,6 +107,7 @@ class PricingPageModelsTests(unittest.TestCase):
         self.assertTrue(any(m.startswith("grok-") for m in page))
         self.assertIn("grok-4.5", page)
         self.assertIn("grok-4.6", page)
+        self.assertIn("grok-4.7", page)
         self.assertIn("claude-opus-5", page)
         self.assertIn("claude-opus-4-8", page)
         # Page is a subset — legacy/rare IDs stay in models for billing only.

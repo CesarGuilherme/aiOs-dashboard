@@ -22,6 +22,7 @@ from .tips import all_tips, dismiss_tip
 from .memory import get_brain, quarantine_memory, promote_memory
 from .memory_parsing import memory_projects_dir
 from .fx import usd_brl_rate
+from .pricing_sync import missing_grok_models, sync_pricing
 from .scanner import scan_all
 from .skills import cached_catalog
 from .workspace import scan_workspace, workspace_roots, allowed_open_path, open_on_device
@@ -319,11 +320,24 @@ def build_handler(db_path: str, projects_dir: str, grok_sessions_dir: str | None
     return H
 
 
+# Ids already fetched this process. One try per missing model, not every scan.
+_pricing_sync_attempted: set[str] = set()
+
+
+def _sync_unpriced_grok(db_path: str) -> None:
+    missing = missing_grok_models(db_path, _current_pricing()) - _pricing_sync_attempted
+    if not missing:
+        return
+    _pricing_sync_attempted.update(missing)
+    print(sync_pricing(PRICING_JSON, db_path=db_path))
+
+
 def _scan_loop(db_path: str, projects_dir: str, grok_sessions_dir: str | None = None, interval: float = 30.0):
     while True:
         try:
             n = scan_all(db_path, projects_dir=projects_dir, grok_sessions_dir=grok_sessions_dir)
             if n["messages"] > 0:
+                _sync_unpriced_grok(db_path)
                 _publish({"type": "scan", "n": n, "ts": time.time()})
         except Exception as e:
             _publish({"type": "error", "message": str(e)})

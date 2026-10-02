@@ -88,7 +88,11 @@ def cmd_dashboard(args):
     init_db(db)
     if not args.no_scan:
         scan_all(db, projects_dir=_projects(args), grok_sessions_dir=_grok_sessions(args))
-    from token_dashboard.server import run
+    from token_dashboard.pricing_sync import sync_pricing
+    from token_dashboard.server import PRICING_JSON, run
+
+    # After the scan so a model seen in this pass can join the settings list.
+    print(sync_pricing(PRICING_JSON, db_path=db))
 
     host = os.environ.get("HOST", "127.0.0.1")
     port = int(os.environ.get("PORT", "8181"))
