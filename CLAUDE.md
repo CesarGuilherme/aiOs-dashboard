@@ -10,14 +10,14 @@ Inspired by [phuryn/claude-usage](https://github.com/phuryn/claude-usage) but di
 
 ### Session contract (do not re-derive)
 - **What it is:** local stdlib-only CLI + SQLite cache + vanilla `web/` SPA (hash router, no build). Serves on `127.0.0.1:8181`; UI costs in **R$** via `~/.brain/.usd_brl`.
-- **Data plane:** `scan_all` every 30s → Claude JSONL + Grok sessions → `~/.brain/token-dashboard.db`; APIs under `/api/*`; Brain from `~/.brain/projects/` + `~/.brain/global`.
+- **Data plane:** `scan_all` every 30s → Claude JSONL + Grok sessions → `~/.brain/token-dashboard.db`; APIs under `/api/*`; Brain from `~/.brain/brain.db` (derived index of the `~/.brain/nodes` tree; schema contract in `memory_parsing.py`).
 - **Live UI:** SSE `/api/stream` may emit `scan`; client **soft-refreshes** only (Overview `export refresh`); full remount is **navigation-only**; Brain never auto-refreshes. `/api/stream` fans out to **one queue per connected client** (`_publish` / `_subscribe`) — a single shared queue handed each event to exactly one client.
 - **Dedup:** assistant billing key is `(session_id, message_id)`, not top-level `uuid` (streaming snapshots).
 - **Touch carefully:** `web/app.js` router/SSE, `web/charts.js` instance reuse, `web/rings.js` teardown, `token_dashboard/server.py` `_scan_loop` — do not “fix” live updates by remounting tabs.
 
 ## Status
 
-Working codebase. 139 Python unit tests (`python3 -m unittest discover tests`). Eight UI tabs wired up (Overview, Brain, Prompts, Sessions, Projects, Skills, Tips, Settings). Runs on macOS, Windows, and Linux.
+Working codebase. 158 Python unit tests (`python3 -m unittest discover tests`). Eight UI tabs wired up (Overview, Brain, Prompts, Sessions, Projects, Skills, Tips, Settings). Runs on macOS, Windows, and Linux.
 
 **The default UI is now the server-rendered htmx frontend, served at `/`.** The vanilla SPA is untouched and still fully wired at **`/spa`** (linked from the topbar). To switch back, flip the two branches at the top of `do_GET` in `server.py`.
 
@@ -36,10 +36,10 @@ A full-parity server-rendered UI. Both frontends run in the same process: htmx a
 
 ## Architecture
 
-- `cli.py` → `scan_all` → Claude `scanner.py` + Grok `grok_scanner.py` → `~/.claude/token-dashboard.db` (SQLite, `source` column)
+- `cli.py` → `scan_all` → Claude `scanner.py` + Grok `grok_scanner.py` → `~/.brain/token-dashboard.db` (SQLite, `source` column)
 - `token_dashboard/server.py` exposes JSON APIs (`/api/*`) + SSE stream (`/api/stream`) + static frontend (`web/`)
-- Brain extras: `memory.py` / `memory_parsing.py` → `/api/brain`; `workspace.py` → `/api/workspace` + `POST /api/open`
-- `web/` is vanilla JS, no build step — hash router + ECharts + `rings.js` + HUD background; costs via `fmt.usd` → BRL (`~/.claude/.usd_brl`)
+- Brain extras: `memory_parsing.py` (reads `brain.db`) + `memory.py` (projects/graph/ROI/suggestions; keep/remove move notes to `nodes/.trash` and rerun `brain.py rebuild`) → `/api/brain`; `workspace.py` → `/api/workspace` + `POST /api/open`
+- `web/` is vanilla JS, no build step — hash router + ECharts + `rings.js` + HUD background; costs via `fmt.usd` → BRL (`~/.brain/.usd_brl`)
 
 ### `token_dashboard/server.py` (HTTP process)
 
@@ -47,11 +47,11 @@ Stdlib-only `ThreadingHTTPServer` + handler factory (`build_handler` closes over
 
 ### `web/rings.js` (Brain tab graph)
 
-Hand-rolled 2D-canvas 3D **synapse graph** for the Brain tab — no SVG, no charting lib, unrelated to `web/charts.js`/ECharts. One-shot Fruchterman-Reingold 3D layout on mount, then just rotates; color is a **rainbow hue per project/group**, deliberately independent of the app's `--accent` HUD palette — don't reharmonize it with chart colors. Shift+drag orbits (plain drag pans) — ctrl+drag was tried and rejected because ctrl+click opens Safari's context menu. Callers must invoke the returned `__teardown()` on unmount to stop the rAF loop/interval/ResizeObserver. SSE soft-refresh is skipped on the Brain tab so the graph does not reset mid-view. Full remount happens only on hash navigation; Overview implements optional `export async function refresh(root)` for in-place live updates.
+Hand-rolled 2D-canvas 3D **synapse graph** for the Brain tab — no SVG, no charting lib, unrelated to `web/charts.js`/ECharts. Renders the Brain **tree**: node radius by kind (domain > project hub > topic > note) + descendant count, hubs glow with a ring. Layout = hierarchical seed (domains on a sphere, children fanned out from their parent) + a short Fruchterman-Reingold pass (`parent` springs short, `link` long, `soft` not laid out), then fit so the p90 node reaches 1.6·WORLD; typed links (`same-solution`, `reuses`, `depends-on`, `supersedes`, `related`) are colored by kind (`EDGE_RGB`) and are the only edges that fire pulses; note labels only at zoom ≥ 1.8. Payload is `brain.graph` from `/api/brain`; a flat legacy payload (no `kind`) still renders the old way. Then it just rotates; color is a **rainbow hue per project/group**, deliberately independent of the app's `--accent` HUD palette — don't reharmonize it with chart colors. Shift+drag orbits (plain drag pans) — ctrl+drag was tried and rejected because ctrl+click opens Safari's context menu. Callers must invoke the returned `__teardown()` on unmount to stop the rAF loop/interval/ResizeObserver. SSE soft-refresh is skipped on the Brain tab so the graph does not reset mid-view. Full remount happens only on hash navigation; Overview implements optional `export async function refresh(root)` for in-place live updates.
 
 ### `web/routes/brain.js` (Brain tab route)
 
-`#/brain` page: fetches `/api/brain` + `/api/workspace` (workspace optional). **Canvas nodes = memory entries + wikilinks only**; skills/routines/apps stay in the sidebar lists. Wires `ringsCanvas`, search (`/`), labels/spin, ROI KPIs, timeline chart, suggestions (dismiss → `/api/tips/dismiss`), prune + auto keep/remove (`/api/brain/keep|remove` → full reload). Default export **returns teardown** (`rings.__teardown` + slash keydown). **No `export refresh`** — SSE deliberately skips this tab. Durable notes: `…/memory/brain_js_contract.md`.
+`#/brain` page: fetches `/api/brain` + `/api/workspace` (workspace optional). **Canvas = `brain.graph`** (whole tree + typed links; detail panel lists typed links first, with their `why`); skills/routines/apps stay in the sidebar lists. Wires `ringsCanvas`, search (`/`), labels/spin, ROI KPIs, timeline chart, suggestions (dismiss → `/api/tips/dismiss`), prune + auto keep/remove (`/api/brain/keep|remove` → full reload). Default export **returns teardown** (`rings.__teardown` + slash keydown). **No `export refresh`** — SSE deliberately skips this tab. Durable notes: `…/memory/brain_js_contract.md`.
 
 ### `web/routes/overview.js` (Overview tab)
 
