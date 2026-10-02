@@ -10,9 +10,6 @@ import { ringsCanvas } from '/web/rings.js';
 
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const fmtSize = b => b == null ? ''
-  : b > 1048576 ? (b / 1048576).toFixed(1) + ' MB'
-  : b > 1024 ? (b / 1024).toFixed(0) + ' KB' : b + ' B';
 const fmtAge = iso => {
   if (!iso) return '';
   const d = Math.floor((Date.now() - Date.parse(iso)) / 86400000);
@@ -39,20 +36,26 @@ export function mountBrain(root) {
       return;
     }
     const m = n.meta || {};
-    const badges = [m.dept || m.project, n.layer].filter(Boolean)
+    const badges = [m.dept || m.project, n.kind || n.layer].filter(Boolean)
       .map(b => `<span class="badge">${esc(b)}</span>`).join(' ');
-    const linked = links.filter(l => l.source === n.id || l.target === n.id)
-      .map(l => (l.source === n.id ? l.target : l.source)).slice(0, 8);
+    const linked = links.filter(l => l.kind !== 'parent' && l.kind !== 'soft' &&
+      (l.source === n.id || l.target === n.id))
+      .sort((x, y) => (x.kind === 'link') - (y.kind === 'link')).slice(0, 10);
+    const children = links.filter(l => l.kind === 'parent' && l.source === n.id).length;
     detail.className = 'rings-detail';
     detail.innerHTML = `
       <div class="gi-name">${esc(n.name)}</div>
       <div style="margin:4px 0">${badges}</div>
-      <div class="gi-meta">${[m.count && m.count + ' files', fmtSize(m.size), fmtAge(m.mtime)]
+      ${m.summary ? `<div class="gi-meta" style="margin-bottom:4px">${esc(m.summary)}</div>` : ''}
+      <div class="gi-meta">${[children && children + ' children', fmtAge(m.mtime)]
         .filter(Boolean).join(' · ')}</div>
       <div class="rings-actions"><button data-fly="1">Fly to</button></div>
       ${linked.length ? `<div class="gi-meta" style="margin-top:6px">CONNECTIONS</div>` +
-        linked.map(id => `<div class="gi-meta">• ${esc(String(id).split('::').pop())}</div>`).join('')
-        : ''}`;
+        linked.map(l => {
+          const other = l.source === n.id ? l.target : l.source;
+          return `<div class="gi-meta">${l.source === n.id ? '→' : '←'} <span class="badge">${esc(l.kind)}</span> `
+            + `${esc(String(other).split('/').pop())}${l.why ? ` — ${esc(l.why)}` : ''}</div>`;
+        }).join('') : ''}`;
     detail.querySelector('[data-fly]')?.addEventListener('click', () => rings.flyTo(n.id));
   };
 

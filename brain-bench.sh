@@ -18,7 +18,7 @@ BAN="IMPORTANT CONSTRAINT: you must NOT read anything under ~/.claude (no memory
 
 # Expected ground truth (from the memory files) for manual correctness check:
 #   Q1: WezTerm (~/.wezterm.lua), Starship, JARVIS cyan-on-navy theme
-#   Q2: 172.25.12.207, container n8n-app, credentials in ~/.claude/.env
+#   Q2: 172.25.12.207, container n8n-app, credentials in Keychain (brain secret list)
 #   Q3: OCI rotates MySQL_Endpoint_CA; re-pin PEM+fingerprint in lib/mysql.ts via openssl s_client
 
 run() { # name cwd prompt

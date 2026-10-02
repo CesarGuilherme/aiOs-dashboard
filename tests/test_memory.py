@@ -6,10 +6,14 @@ from pathlib import Path
 
 from token_dashboard.db import init_db, connect
 from token_dashboard.memory import (
+    _coverage_slug,
+    _target_vanished,
     _parse_frontmatter, _soft_links, _learning_timeline, memory_roi,
     quarantine_memory, promote_memory, get_brain, EXTRACTION_SENTINEL,
 )
 from token_dashboard.pricing import load_pricing
+
+from tests.brain_fixture import make_brain
 
 PRICING = load_pricing(Path(__file__).resolve().parent.parent / "pricing.json")
 
@@ -131,35 +135,32 @@ class RoiTests(unittest.TestCase):
 class MutationTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
-        self.memdir = Path(self.tmp) / "slug" / "memory"
-        self.memdir.mkdir(parents=True)
-        (self.memdir / "auto_fact.md").write_text(
-            _mem("  source: auto\n  origin_session: s1\n"), encoding="utf-8")
-        (self.memdir / "MEMORY.md").write_text(
-            "# Index\n- [Sample](auto_fact.md) — a hook\n- [Other](other.md) — keep me\n",
-            encoding="utf-8")
+        self.nodes = make_brain(self.tmp, [
+            {"id": "d", "kind": "domain"},
+            {"id": "d/p", "kind": "project"},
+            {"id": "d/p/auto_fact", "kind": "memory", "source": "auto", "body": "a fact"},
+        ])
+        self.note = Path(self.nodes) / "d/p/auto_fact.md"
 
-    def test_quarantine_moves_file_and_strips_pointer(self):
-        res = quarantine_memory(self.tmp, "slug", "auto_fact.md")
+    def test_quarantine_moves_file_to_trash(self):
+        res = quarantine_memory(self.nodes, "d/p", "d/p/auto_fact.md")
         self.assertTrue(res["ok"])
-        self.assertFalse((self.memdir / "auto_fact.md").exists())
-        self.assertTrue(any((self.memdir / ".trash").iterdir()))
-        index = (self.memdir / "MEMORY.md").read_text()
-        self.assertNotIn("auto_fact.md", index)
-        self.assertIn("other.md", index)  # untouched
+        self.assertFalse(self.note.exists())
+        self.assertTrue(any((Path(self.nodes) / ".trash").iterdir()))
 
     def test_promote_sets_source_user(self):
-        res = promote_memory(self.tmp, "slug", "auto_fact.md")
+        res = promote_memory(self.nodes, "d/p", "d/p/auto_fact.md")
         self.assertTrue(res["ok"])
-        text = (self.memdir / "auto_fact.md").read_text()
+        text = self.note.read_text()
         self.assertIn("source: user", text)
         self.assertNotIn("source: auto", text)
 
     def test_path_traversal_is_rejected(self):
-        self.assertFalse(quarantine_memory(self.tmp, "slug", "../../etc/passwd")["ok"])
-        self.assertFalse(quarantine_memory(self.tmp, "../slug", "auto_fact.md")["ok"])
-        self.assertFalse(quarantine_memory(self.tmp, "slug", "MEMORY.md")["ok"])
-        self.assertFalse(quarantine_memory(self.tmp, "slug", "nonexistent.md")["ok"])
+        self.assertFalse(quarantine_memory(self.nodes, "d/p", "../../etc/passwd")["ok"])
+        self.assertFalse(quarantine_memory(self.nodes, "d/p", "d/p/../../../x.md")["ok"])
+        self.assertFalse(quarantine_memory(self.nodes, "other", "d/p/auto_fact.md")["ok"])
+        self.assertFalse(quarantine_memory(self.nodes, "d/p", "d/p/_project.md")["ok"])
+        self.assertFalse(quarantine_memory(self.nodes, "d/p", "d/p/nonexistent.md")["ok"])
 
 
 class GetBrainShapeTests(unittest.TestCase):
@@ -167,17 +168,83 @@ class GetBrainShapeTests(unittest.TestCase):
         self.tmp = tempfile.mkdtemp()
         self.db = os.path.join(self.tmp, "t.db")
         init_db(self.db)
-        memdir = Path(self.tmp) / "projects" / "myproj" / "memory"
-        memdir.mkdir(parents=True)
-        (memdir / "a.md").write_text(_mem("  source: auto\n"), encoding="utf-8")
+        self.nodes = make_brain(self.tmp, [
+            {"id": "global", "kind": "domain"},
+            {"id": "global/rule", "kind": "memory", "type": "feedback", "body": "always BRL"},
+            {"id": "secom", "kind": "domain"},
+            {"id": "secom/app", "kind": "project", "workspaces": ["/w/app"], "size": 3},
+            {"id": "secom/app/topic", "kind": "topic"},
+            {"id": "secom/app/topic/a", "kind": "memory", "type": "gotcha", "source": "auto"},
+            {"id": "secom/app/LEARNINGS#2026-09-01-x", "kind": "memory", "type": "learning",
+             "name": "x", "date": "2026-09-01"},
+            {"id": "secom/db", "kind": "project", "workspaces": ["/w/db"]},
+        ], edges=[("secom/app", "secom/db", "depends-on", "reads the warehouse")])
 
-    def test_payload_has_roi_timeline_and_link_kinds(self):
-        brain = get_brain(str(Path(self.tmp) / "projects"), self.db, PRICING)
+    def test_payload_groups_by_hub_and_keeps_learnings(self):
+        brain = get_brain(self.nodes, self.db, PRICING)
         self.assertIn("roi", brain)
         self.assertIn("timeline", brain)
         self.assertIn("suggestions", brain)
-        entry = brain["projects"][0]["entries"][0]
-        self.assertEqual(entry["source"], "auto")
+        by_slug = {p["slug"]: p for p in brain["projects"]}
+        self.assertEqual(set(by_slug), {"global", "secom/app", "secom/db"})
+        app = by_slug["secom/app"]
+        self.assertEqual([e["name"] for e in app["entries"]], ["a"])  # topic note rolls up to hub
+        self.assertEqual(app["entries"][0]["source"], "auto")
+        self.assertEqual(app["entries"][0]["file"], "secom/app/topic/a.md")
+        self.assertEqual(app["learnings"][0]["date"], "2026-09-01")
+
+    def test_graph_has_every_node_parent_edges_and_typed_links(self):
+        brain = get_brain(self.nodes, self.db, PRICING)
+        g = brain["graph"]
+        self.assertEqual(len(g["nodes"]), 8)
+        kinds = {n["id"]: n["kind"] for n in g["nodes"]}
+        self.assertEqual(kinds["secom/app"], "project")
+        parent = {(l["source"], l["target"]) for l in g["links"] if l["kind"] == "parent"}
+        self.assertIn(("secom/app/topic", "secom/app/topic/a"), parent)
+        typed = [l for l in brain["links"] if l["kind"] == "depends-on"]
+        self.assertEqual(typed[0]["why"], "reads the warehouse")
+
+    def test_stale_tree_is_detected_after_hand_edit(self):
+        from token_dashboard.memory_parsing import _stale
+        db, nodes = Path(self.tmp) / "brain.db", Path(self.nodes)
+        past = db.stat().st_mtime - 60
+        for f in [nodes, *nodes.rglob("*")]:
+            os.utime(f, (past - 60, past - 60))
+        os.utime(db, (past, past))
+        self.assertFalse(_stale(nodes, db))
+        (nodes / "secom/app/topic/a.md").write_text("edited by hand")
+        self.assertTrue(_stale(nodes, db))
+
+    def test_missing_brain_db_is_empty_not_an_error(self):
+        brain = get_brain(os.path.join(self.tmp, "nowhere", "nodes"), self.db, PRICING)
+        self.assertEqual(brain["projects"], [])
+        self.assertEqual(brain["graph"]["nodes"], [])
+
+
+class CoverageSlugTest(unittest.TestCase):
+    """Raw tool_calls.project_slug does not address the Brain dir that holds
+    the memories — Grok stores `SSD_CESAR`, worktrees get their own slug."""
+
+    def test_grok_underscore_slug_maps_to_canonical_brain_dir(self):
+        self.assertEqual(
+            _coverage_slug("-Volumes-SSD_CESAR-Developer-Secom-oracle-mysql",
+                           "/Volumes/SSD_CESAR/Developer/Secom/oracle/mysql/gold.sql"),
+            "-Volumes-SSD-CESAR-Developer-Secom-oracle-mysql")
+
+    def test_worktree_slug_falls_back_to_parent_repo(self):
+        self.assertEqual(
+            _coverage_slug("-Volumes-SSD_CESAR-Developer-vision-.worktrees-stage-1",
+                           "/Volumes/SSD_CESAR/Developer/vision/.worktrees/stage-1/lib/a.ts"),
+            "-Volumes-SSD-CESAR-Developer-vision")
+
+    def test_canonical_slug_is_unchanged(self):
+        slug = "-Volumes-SSD-CESAR-Developer-Secom-oracle-mysql"
+        self.assertEqual(_coverage_slug(slug, "/x/y.sql"), slug)
+
+    def test_vanished_only_when_volume_is_mounted(self):
+        self.assertFalse(_target_vanished("/Volumes/NOT-MOUNTED-XYZ/a/b.ts"))
+        self.assertTrue(_target_vanished(str(Path(__file__).parent / "no-such-file.ts")))
+        self.assertFalse(_target_vanished(__file__))
 
 
 if __name__ == "__main__":

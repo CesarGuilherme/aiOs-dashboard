@@ -10,7 +10,7 @@ export default async function (root) {
     api('/api/workspace').catch(() => ({ applications: [], routines: [], skills: [] })),
   ]);
   const allEntries = brain.projects.flatMap(p =>
-    p.entries.map(e => ({ ...e, projectLabel: p.label, slug: e.id.split('::')[0] })));
+    p.entries.map(e => ({ ...e, projectLabel: p.label, slug: p.slug })));
   const roi = brain.roi || {};
   const timeline = brain.timeline || [];
   const eff = brain.effectiveness || { by_name: {}, prune_candidates: [] };
@@ -113,7 +113,8 @@ export default async function (root) {
 
     ${brain.projects.map(p => `
       <div class="card" style="margin-top:16px">
-        <h2>${fmt.htmlSafe(p.label)} <span class="muted" style="font-weight:400;font-size:12px">· ${p.entries.length} memories${p.learnings.length ? ` · ${p.learnings.length} learnings` : ''}</span></h2>
+        <h2><span class="badge">${fmt.htmlSafe(p.domain || '')}</span> ${fmt.htmlSafe(p.label)} <span class="muted" style="font-weight:400;font-size:12px">· ${p.entries.length} memories${p.learnings.length ? ` · ${p.learnings.length} learnings` : ''}</span></h2>
+        ${p.summary ? `<p class="muted" style="margin:-8px 0 14px">${fmt.htmlSafe(p.summary)}</p>` : ''}
         ${p.learnings.length ? `
           <h3>Learning curve</h3>
           ${p.learnings.map(l => `
@@ -166,30 +167,27 @@ export default async function (root) {
     });
   }
 
-  // --- rings: memory nodes + wikilinks only — the canvas is a pure synapse graph.
+  // --- rings: the whole Brain tree (domains, hubs, topics, notes) + typed links.
   // Skills/routines/applications are agentic-layer context, shown in the sidebar list instead.
-  const nodes = allEntries.map(e => ({
-    id: e.id, name: e.name, layer: 'memory', group: e.projectLabel,
-    size: 1 + e.links.length,
-    meta: { project: e.projectLabel, links: e.links.length, mtime: e.mtime, mem: true, name: e.name },
-  }));
-  const links = brain.links;
+  const { nodes, links } = brain.graph || { nodes: [], links: [] };
 
   const detail = root.querySelector('#rings-detail');
-  const fmtSize = b => b == null ? '' : b > 1048576 ? (b / 1048576).toFixed(1) + ' MB' : b > 1024 ? (b / 1024).toFixed(0) + ' KB' : b + ' B';
   const fmtAge = iso => { if (!iso) return ''; const d = Math.floor((Date.now() - Date.parse(iso)) / 86400000); return d <= 0 ? 'today' : d + 'd ago'; };
   const showDetail = n => {
     if (!n) { detail.className = 'rings-detail muted'; detail.textContent = 'click a node'; return; }
     const m = n.meta || {};
-    const badges = [m.dept || m.project, n.layer].filter(Boolean)
+    const badges = [m.dept || m.project, n.kind || n.layer].filter(Boolean)
       .map(b => `<span class="badge">${fmt.htmlSafe(String(b))}</span>`).join(' ');
-    const linked = (brain.links || []).filter(l => l.source === n.id || l.target === n.id)
-      .map(l => l.source === n.id ? l.target : l.source).slice(0, 8);
+    const linked = links.filter(l => l.kind !== 'parent' && l.kind !== 'soft' &&
+      (l.source === n.id || l.target === n.id))
+      .sort((x, y) => (x.kind === 'link') - (y.kind === 'link')).slice(0, 10);
+    const children = links.filter(l => l.kind === 'parent' && l.source === n.id).length;
     detail.className = 'rings-detail';
     detail.innerHTML = `
       <div class="gi-name">${fmt.htmlSafe(n.name)}</div>
       <div style="margin:4px 0">${badges}</div>
-      <div class="gi-meta">${[m.count && m.count + ' files', fmtSize(m.size), fmtAge(m.mtime), fmt.htmlSafe(m.ext || '')].filter(Boolean).join(' · ')}</div>
+      ${m.summary ? `<div class="gi-meta" style="margin-bottom:4px">${fmt.htmlSafe(m.summary)}</div>` : ''}
+      <div class="gi-meta">${[children && children + ' children', fmtAge(m.mtime)].filter(Boolean).join(' · ')}</div>
       ${m.path || m.rel ? `<div class="gi-meta mono" style="word-break:break-all">${fmt.htmlSafe(m.rel || m.path)}</div>` : ''}
       <div class="rings-actions">
         <button data-fly="${fmt.htmlSafe(n.id)}">Fly to</button>
@@ -197,7 +195,11 @@ export default async function (root) {
         <button data-open="${fmt.htmlSafe(m.path)}">Open on device</button>` : ''}
       </div>
       ${linked.length ? `<div class="gi-meta" style="margin-top:6px">CONNECTIONS</div>
-        ${linked.map(id => `<div class="gi-meta">• ${fmt.htmlSafe(String(id).split('::').pop())}</div>`).join('')}` : ''}`;
+        ${linked.map(l => {
+          const other = l.source === n.id ? l.target : l.source;
+          return `<div class="gi-meta">${l.source === n.id ? '→' : '←'} <span class="badge">${fmt.htmlSafe(l.kind)}</span> `
+            + `${fmt.htmlSafe(String(other).split('/').pop())}${l.why ? ` — ${fmt.htmlSafe(l.why)}` : ''}</div>`;
+        }).join('')}` : ''}`;
     detail.querySelector('[data-fly]')?.addEventListener('click', () => rings.flyTo(n.id));
     detail.querySelector('[data-copy-path]')?.addEventListener('click', async ev => {
       await navigator.clipboard.writeText(ev.target.dataset.copyPath); ev.target.textContent = 'copied ✓';

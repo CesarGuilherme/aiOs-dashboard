@@ -1,8 +1,9 @@
-"""Brain: live reader for the multi-agent Second Brain memory dirs + suggestions.
+"""Brain: reader for the multi-agent Second Brain (~/.brain) + suggestions.
 
-Reads ~/.brain/projects/<slug>/*.md (and the global tier) straight off disk on
-every request — the files are the shared source of truth for every agent.
-Suggestions reuse SQLite tool data to spot knowledge agents keep re-deriving.
+The Brain is a Markdown tree (domain → project → topic → memory) compiled by
+~/.brain/scripts/brain.py into brain.db; this module reads that DB on every
+request and shapes it for the Brain tab. Suggestions reuse SQLite tool data to
+spot knowledge agents keep re-deriving.
 """
 from __future__ import annotations
 
@@ -14,17 +15,19 @@ from typing import List, Optional, Tuple
 
 from .db import connect, daily_token_breakdown
 from .memory_parsing import (
-    _read_mem_dir,
-    get_coverage,
     GLOBAL_SLUG,
     SPECIAL_FILES,
-    LEARNING_HEAD_RE,
-    _parse_frontmatter,
     _iso,
-    iter_mem_dirs,
-    global_mem_dir,
+    _parse_frontmatter,
+    brain_db_for,
+    brain_root,
+    coverage_from_tree,
+    load_tree,
+    owner_of,
+    rebuild_brain,
 )
 from .naming import (
+    _encode_cwd,
     best_project_name,
     get_labels,
 )
@@ -47,11 +50,38 @@ read instead file files use used using one two new old via more most less via al
 """.split())
 
 
-# Parsing functions moved to memory_parsing.py
 
 
 # Name functions are now in token_dashboard/naming.py
 # get_labels and _encode_cwd (and best_project_name) are re-exported/imported via naming
+
+
+def _coverage_slug(project_slug: str, target: str) -> str:
+    """Slug to look coverage up under. Raw `project_slug` is not it.
+
+    Two ways the stored slug misses the Brain dir that actually holds the
+    memories: Grok's scanner stores the raw cwd (`SSD_CESAR`) while Brain dirs
+    use Claude's encoding (`SSD-CESAR`), and a git worktree gets a slug of its
+    own though its memories live with the parent repo. Both make every read look
+    uncovered, so every project Grok touches suggests memories that already
+    exist. Dismissal keys stay on the raw slug, so old dismissals survive.
+    """
+    root, sep, _ = target.partition("/.worktrees/")
+    return _encode_cwd(root if sep else project_slug)
+
+
+def _target_vanished(target: str) -> bool:
+    """File is gone while its volume is still mounted (deleted worktree, moved file).
+
+    Mount-aware on purpose: /Volumes/SSD-CESAR is often unmounted here, and a
+    bare exists() check would then flag every project at once.
+    """
+    p = Path(target)
+    if p.exists():
+        return False
+    parts = p.parts
+    root = Path(*parts[:3]) if len(parts) > 3 and parts[1] == "Volumes" else Path(p.anchor)
+    return root.is_dir()
 
 
 def knowledge_suggestions(db_path: str, covered_by_slug: dict, labels: dict) -> List[dict]:
@@ -81,7 +111,9 @@ def knowledge_suggestions(db_path: str, covered_by_slug: dict, labels: dict) -> 
         base = Path(target).name
         if "/memory/" in target or base in SPECIAL_FILES:
             continue
-        if base.lower() in covered_by_slug.get(slug, ""):
+        if _target_vanished(target):
+            continue
+        if base.lower() in covered_by_slug.get(_coverage_slug(slug, target), ""):
             continue
         key = _key("memory", f"{slug}:{target}")
         if _is_dismissed(db_path, key):
@@ -151,60 +183,59 @@ def memory_effectiveness(db_path: str, min_injections: int = 3) -> dict:
     return out
 
 
-# _read_mem_dir moved to memory_parsing.py
 
 
 def get_brain(projects_dir: str, db_path: str, pricing: Optional[dict] = None) -> dict:
-    projects: List[dict] = []
-    all_entries: List[dict] = []
-    covered_by_slug: dict = {}
+    """Brain tab payload from brain.db.
 
-    targets: List[Tuple[Path, str]] = list(iter_mem_dirs(projects_dir))
-    slugs = [slug for _, slug in targets]
-    labels = get_labels(db_path, slugs)
+    `projects` keeps the per-project list shape the cards render (one per hub,
+    plus the global domain); `graph` is the full tree for the canvas: every node
+    with its kind/size, `parent` edges for the hierarchy, and the typed
+    cross-links (+ faint keyword `soft` edges) on top.
+    """
+    nodes, edges = load_tree(brain_db_for(projects_dir))
+    by_id = {n["id"]: n for n in nodes}
+    covered_by_slug = coverage_from_tree(nodes)
+    labels = get_labels(db_path, list(covered_by_slug))
 
-    g = global_mem_dir(projects_dir)
-    if g is not None:
-        targets.append((g, GLOBAL_SLUG))
-
-    for mem_dir, slug in targets:
-        entries, learnings, covered_blob = _read_mem_dir(mem_dir, slug)
-        covered_by_slug[slug] = covered_blob
-        label = "Global" if slug == GLOBAL_SLUG else labels.get(slug, slug)
-        projects.append({
-            "slug": slug,
-            "label": label,
-            "entries": entries,
-            "learnings": learnings,
+    groups: dict = {}
+    for n in nodes:
+        owner = owner_of(n, by_id)
+        n["_owner"] = owner["id"] if owner else n["id"]
+        if owner and owner["id"] not in groups and (owner["kind"] == "project" or owner["id"] == GLOBAL_SLUG):
+            domain = owner["id"].split("/", 1)[0]
+            groups[owner["id"]] = {
+                "slug": owner["id"], "label": "Global" if owner["id"] == GLOBAL_SLUG else owner["name"],
+                "domain": domain, "summary": owner.get("summary") or "", "size": owner.get("size") or 0,
+                "entries": [], "learnings": [],
+            }
+        if n["kind"] != "memory" or n["_owner"] not in groups:
+            continue
+        g = groups[n["_owner"]]
+        if n["type"] == "learning":
+            g["learnings"].append({"date": n.get("date") or "", "title": n["name"], "body": n.get("body") or ""})
+            continue
+        g["entries"].append({
+            "id": n["id"], "name": n["name"], "description": n.get("summary") or "",
+            "type": n.get("type") or "reference", "source": n.get("source") or "user",
+            "origin_session": "", "body": n.get("body") or "",
+            "file": _rel_file(projects_dir, n.get("file") or ""),
+            "mtime": _iso(n["mtime"]) if n.get("mtime") else "",
+            "links": sorted({e["dst"] for e in edges if e["src"] == n["id"]}),
         })
-        all_entries.extend(entries)
+    projects = sorted(groups.values(), key=lambda p: (p["domain"] != GLOBAL_SLUG, p["domain"], p["label"].lower()))
+    for p in projects:
+        p["entries"].sort(key=lambda e: e["mtime"], reverse=True)
+        p["learnings"].sort(key=lambda l: l["date"], reverse=True)
+    all_entries = [e for p in projects for e in p["entries"]]
 
-    projects.sort(key=lambda p: max((e["mtime"] for e in p["entries"]), default=""), reverse=True)
+    cross = [{"source": e["src"], "target": e["dst"], "kind": e["kind"], "why": e.get("why") or ""}
+             for e in edges if e["src"] in by_id and e["dst"] in by_id]
+    linked = {tuple(sorted((l["source"], l["target"]))) for l in cross}
+    soft = _soft_links(all_entries, linked)
 
-    by_name = {}
-    for e in all_entries:
-        by_name.setdefault(e["name"], e["id"])
-    links = []
-    seen = set()
-    for e in all_entries:
-        for slug_name in e["links"]:
-            target_id = by_name.get(slug_name)
-            if not target_id or target_id == e["id"]:
-                continue
-            pair = tuple(sorted((e["id"], target_id)))
-            if pair in seen:
-                continue
-            seen.add(pair)
-            links.append({"source": e["id"], "target": target_id, "kind": "explicit"})
-
-    # Soft edges: connect memories that share distinctive vocabulary even when
-    # nobody hand-wrote a [[link]]. Rendered faint so explicit links stay primary.
-    links.extend(_soft_links(all_entries, seen))
-
-    # Effectiveness: tag each entry with its rank hit-rate, and resolve prune
-    # candidates back to a slug+file so the existing quarantine UI can act on them.
     effectiveness = memory_effectiveness(db_path)
-    entry_by_name: dict = {}
+    entry_by_name = {}
     for e in all_entries:
         entry_by_name.setdefault(e["name"], e)
         e["usage"] = effectiveness["by_name"].get(e["name"])
@@ -212,18 +243,45 @@ def get_brain(projects_dir: str, db_path: str, pricing: Optional[dict] = None) -
     for pc in effectiveness["prune_candidates"]:
         ent = entry_by_name.get(pc["name"])
         if ent:
-            slug = ent["id"].split("::", 1)[0]
+            slug = by_id[ent["id"]]["_owner"]
             pc.update({"slug": slug, "file": ent["file"],
                        "label": label_by_slug.get(slug, slug), "type": ent["type"]})
 
     return {
         "projects": projects,
-        "links": links,
+        "links": cross,
+        "graph": _graph(nodes, by_id, cross + soft),
         "timeline": _learning_timeline(projects),
         "roi": memory_roi(db_path, covered_by_slug, pricing),
         "suggestions": knowledge_suggestions(db_path, covered_by_slug, labels),
         "effectiveness": effectiveness,
     }
+
+
+def _rel_file(nodes_dir: str, path: str) -> str:
+    """Absolute node path -> path relative to nodes/ (what the mutation endpoints take)."""
+    try:
+        return str(Path(path).resolve().relative_to(Path(nodes_dir).resolve()))
+    except (ValueError, OSError):
+        return Path(path).name
+
+
+def _graph(nodes: List[dict], by_id: dict, links: List[dict]) -> dict:
+    """Canvas payload: every tree node (sized by kind + descendants) and its edges."""
+    out_nodes = []
+    for n in nodes:
+        owner = by_id.get(n["_owner"]) or n
+        group = owner["name"] if owner["kind"] == "project" else n["id"].split("/", 1)[0]
+        out_nodes.append({
+            "id": n["id"], "name": n["name"], "layer": "memory", "kind": n["kind"],
+            "type": n.get("type") or "", "group": group, "size": n.get("size") or 0,
+            "meta": {"project": group, "kind": n["kind"], "summary": n.get("summary") or "",
+                     "mtime": _iso(n["mtime"]) if n.get("mtime") else "",
+                     "mem": n["kind"] == "memory" and n.get("type") != "learning", "name": n["name"]},
+        })
+    parents = [{"source": n["parent_id"], "target": n["id"], "kind": "parent", "why": ""}
+               for n in nodes if n.get("parent_id") in by_id]
+    return {"nodes": out_nodes, "links": parents + links}
 
 
 def _significant_terms(text: str) -> Counter:
@@ -343,7 +401,7 @@ def memory_roi(db_path: str, covered_by_slug: dict, pricing: Optional[dict] = No
                 base = Path(row["target"]).name.lower()
                 if not base:
                     continue
-                if base in covered_by_slug.get(row["slug"], ""):
+                if base in covered_by_slug.get(_coverage_slug(row["slug"], row["target"]), ""):
                     memorized.add((row["slug"], row["target"]))
                     out["reread_count"] += row["reads"]
                     out["saved_tokens_est"] += row["tokens"] or 0
@@ -414,54 +472,38 @@ def memory_roi(db_path: str, covered_by_slug: dict, pricing: Optional[dict] = No
     return out
 
 
-# --- Mutations: the dashboard's only file-writes, narrowly scoped to memory dirs.
+# --- Mutations: the dashboard's only file-writes, narrowly scoped to the node tree.
 
 def _resolve_memory_file(projects_dir: str, slug: str, filename: str) -> Optional[Path]:
-    """Validate slug+filename point at a real memory .md, with no traversal."""
-    if not slug or not filename or filename in SPECIAL_FILES:
+    """`filename` is a path relative to nodes/; reject traversal, index files, non-notes.
+
+    `slug` (the owning hub) is accepted for API compatibility and must prefix the
+    path unless it is the global domain.
+    """
+    if not filename or not filename.endswith(".md") or Path(filename).name in SPECIAL_FILES:
         return None
-    if "/" in filename or "\\" in filename or ".." in slug or "/" in slug or "\\" in slug:
+    rel = Path(filename)
+    if rel.is_absolute() or ".." in rel.parts or Path(filename).name.startswith("_"):
         return None
-    if not filename.endswith(".md"):
+    if slug and slug != GLOBAL_SLUG and not filename.startswith(slug.rstrip("/") + "/"):
         return None
-    root = Path(projects_dir)
-    if slug == GLOBAL_SLUG:
-        candidate = root.parent / "global" if root.name == "projects" else root / "global"
-    else:
-        nested = root / slug / "memory"
-        candidate = nested if nested.is_dir() else root / slug
-    mem_dir = candidate.resolve()
-    target = (mem_dir / filename).resolve()
-    if mem_dir not in target.parents or not target.is_file():
+    root = Path(projects_dir).resolve()
+    target = (root / rel).resolve()
+    if root not in target.parents or not target.is_file():
         return None
     return target
 
 
-def _strip_index_pointer(mem_dir: Path, filename: str) -> None:
-    """Drop the MEMORY.md pointer line that links to `filename`, if present."""
-    index = mem_dir / "MEMORY.md"
-    if not index.is_file():
-        return
-    keep = [ln for ln in index.read_text(encoding="utf-8").splitlines()
-            if f"]({filename})" not in ln]
-    index.write_text("\n".join(keep) + "\n", encoding="utf-8")
-
-
 def quarantine_memory(projects_dir: str, slug: str, filename: str) -> dict:
-    """Move a memory file into memory/.trash/ and remove its index pointer.
-
-    Reversible by design (the file isn't deleted), so a wrong auto-memory can be
-    corrected from the dashboard without losing anything.
-    """
+    """Move a note into nodes/.trash/ (reversible) and rebuild the index."""
     target = _resolve_memory_file(projects_dir, slug, filename)
     if target is None:
         return {"ok": False, "error": "not found"}
-    mem_dir = target.parent
-    trash = mem_dir / ".trash"
+    trash = Path(projects_dir) / ".trash"
     trash.mkdir(exist_ok=True)
-    dest = trash / f"{datetime.utcnow():%Y%m%dT%H%M%S}_{filename}"
+    dest = trash / f"{datetime.utcnow():%Y%m%dT%H%M%S}_{filename.replace('/', '__')}"
     target.rename(dest)
-    _strip_index_pointer(mem_dir, filename)
+    rebuild_brain(projects_dir)
     return {"ok": True, "trashed": dest.name}
 
 
@@ -474,7 +516,7 @@ def promote_memory(projects_dir: str, slug: str, filename: str) -> dict:
     if re.search(r"^\s*source:\s*\w+\s*$", text, flags=re.MULTILINE):
         text = re.sub(r"^(\s*source:\s*)\w+\s*$", r"\1user", text, count=1, flags=re.MULTILINE)
     else:
-        # Insert under metadata: if present, else leave untouched.
-        text = re.sub(r"(^\s*metadata:\s*$)", r"\1\n  source: user", text, count=1, flags=re.MULTILINE)
+        text = re.sub(r"^(name:.*)$", r"\1\nsource: user", text, count=1, flags=re.MULTILINE)
     target.write_text(text, encoding="utf-8")
+    rebuild_brain(projects_dir)
     return {"ok": True}

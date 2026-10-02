@@ -247,7 +247,7 @@ def knowledge(ctx: dict) -> str:
     stats = [
         (memories, "memories", False),
         (len(projs), "projects", False),
-        (len(b.get("links") or []), "wikilinks", False),
+        (len(b.get("links") or []), "links", False),
         (len(b.get("suggestions") or []), "suggested", True),
         (len((b.get("effectiveness") or {}).get("prune_candidates") or []), "injected but never used", True),
     ]

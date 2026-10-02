@@ -192,10 +192,12 @@ def _project_card(p: dict) -> str:
              if not p["entries"] and not p.get("learnings") else "")
     n_learn = len(p.get("learnings") or [])
     meta = f'{len(p["entries"])} memories' + (f" · {n_learn} learnings" if n_learn else "")
+    summary = f'<p class="muted" style="margin:-8px 0 14px">{e(p.get("summary"))}</p>' if p.get("summary") else ""
     return (
         '<div class="card" style="margin-top:16px">'
-        f'<h2>{e(p["label"])} <span class="muted" style="font-weight:400;font-size:12px">'
-        f"· {e(meta)}</span></h2>{learnings}{entries}{empty}</div>"
+        f'<h2><span class="badge">{e(p.get("domain", ""))}</span> {e(p["label"])} '
+        '<span class="muted" style="font-weight:400;font-size:12px">'
+        f"· {e(meta)}</span></h2>{summary}{learnings}{entries}{empty}</div>"
     )
 
 
@@ -210,18 +212,11 @@ def render(ctx: dict) -> str:
     timeline = brain.get("timeline") or []
     eff = brain.get("effectiveness") or {}
 
-    # Canvas nodes are memory entries + wikilinks only — skills/routines/apps are
-    # agentic-layer context and stay in the sidebar lists.
-    nodes = []
-    for p in brain["projects"]:
-        for en in p["entries"]:
-            nodes.append({
-                "id": en["id"], "name": en["name"], "layer": "memory", "group": p["label"],
-                "size": 1 + len(en.get("links") or []),
-                "meta": {"project": p["label"], "links": len(en.get("links") or []),
-                         "mtime": en.get("mtime"), "mem": True, "name": en["name"]},
-            })
-    rings_data = {"nodes": nodes, "links": brain.get("links") or [], "workspace": workspace}
+    # Canvas = the whole Brain tree (domains, project hubs, topics, notes) + typed
+    # links; skills/routines/apps are agentic-layer context and stay in the sidebar.
+    graph = brain.get("graph") or {"nodes": [], "links": []}
+    nodes = graph["nodes"]
+    rings_data = {"nodes": nodes, "links": graph["links"], "workspace": workspace}
 
     tl_chart = ""
     if timeline:
@@ -245,7 +240,7 @@ def render(ctx: dict) -> str:
     graph = (
         '<div class="card rings-card"><h2>Second brain</h2><div class="rings-wrap">'
         '<div id="rings-canvas"></div><div class="rings-panel">'
-        f'<input id="rings-search" type="search" placeholder="Search {i(len(nodes))} memories… ( / )"'
+        f'<input id="rings-search" type="search" placeholder="Search {i(len(nodes))} nodes… ( / )"'
         ' autocomplete="off">'
         '<div id="rings-results" class="rings-results" hidden></div>'
         '<label class="rings-row"><input id="rings-labels" type="checkbox"> Node names</label>'

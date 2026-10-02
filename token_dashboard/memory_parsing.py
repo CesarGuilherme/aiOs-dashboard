@@ -1,25 +1,31 @@
-"""Parsing helpers for Brain memory files (MEMORY.md, *.md in memory dirs, LEARNINGS.md).
+"""Read side of the Second Brain: ~/.brain/brain.db, the derived index of ~/.brain/nodes.
 
-Extracted from memory.py to keep the main file focused and under size limits.
-These are pure (or near-pure) functions that turn text on disk into structured data.
+The Brain's source is a Markdown tree (domain → project → topic → memory) that
+`~/.brain/scripts/brain.py rebuild` compiles into brain.db. The dashboard only
+reads that DB; the tables it relies on are the contract:
+
+  nodes(id, parent_id, kind, type, name, summary, body, file, workspaces,
+        status, source, date, mtime, depth, size)
+      kind ∈ domain|project|topic|memory; type 'learning' = a LEARNINGS.md entry;
+      workspaces = JSON list of repo paths (project hubs only); size = descendants
+  edges(src, dst, kind, why)      kind ∈ link|same-solution|reuses|depends-on|supersedes|related
+
+Parent/child structure comes from nodes.parent_id, not from edges.
 """
 
 from __future__ import annotations
 
+import json
 import os
-import re
+import sqlite3
+import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
-LINK_RE = re.compile(r"\[\[([^\]\n]+)\]\]")
-LEARNING_HEAD_RE = re.compile(r"^##\s+(\d{4}-\d{2}-\d{2})\s*[—–-]*\s*(.*)$")
-
-SPECIAL_FILES = {"MEMORY.md", "LEARNINGS.md", "AUDIT.md"}
-
-# Global tier lives at ~/.brain/global (sibling of ~/.brain/projects).
-# Tests pass a tmp projects root; we only attach Global when that sibling exists.
 GLOBAL_SLUG = "global"
+SPECIAL_FILES = {"MEMORY.md", "LEARNINGS.md", "AUDIT.md", "README.md", "CLAUDE.md", "INDEX.md"}
 
 
 def brain_root() -> Path:
@@ -27,37 +33,14 @@ def brain_root() -> Path:
 
 
 def memory_projects_dir(fallback: str) -> str:
-    """Canonical Brain project store, else the caller’s Claude-layout path."""
-    p = brain_root() / "projects"
+    """The Brain's node tree (`~/.brain/nodes`), else the caller's path (tests)."""
+    p = brain_root() / "nodes"
     return str(p) if p.is_dir() else fallback
 
 
-def iter_mem_dirs(projects_dir: str) -> Iterable[tuple[Path, str]]:
-    """Yield (mem_dir, slug) for one Brain/Claude memory layout.
-
-    New: `projects_dir` is `~/.brain/projects` and each child dir is a store.
-    Compat/tests: `projects_dir/*/memory`.
-    """
-    root = Path(projects_dir)
-    if not root.is_dir():
-        return
-    nested = sorted(p for p in root.glob("*/memory") if p.is_dir())
-    if nested:
-        for d in nested:
-            yield d, d.parent.name
-        return
-    for d in sorted(root.iterdir()):
-        if d.is_dir() and not d.name.startswith("."):
-            yield d, d.name
-
-
-def global_mem_dir(projects_dir: str) -> Optional[Path]:
-    """`../global` when `projects_dir` is a `projects/` folder (Brain layout)."""
-    root = Path(projects_dir)
-    if root.name != "projects":
-        return None
-    g = root.parent / "global"
-    return g if g.is_dir() else None
+def brain_db_for(nodes_dir: str) -> Path:
+    """brain.db sits next to the nodes/ tree it indexes."""
+    return Path(nodes_dir).parent / "brain.db"
 
 
 def _iso(mtime: float) -> str:
@@ -65,108 +48,111 @@ def _iso(mtime: float) -> str:
 
 
 def _parse_frontmatter(text: str) -> Tuple[dict, str]:
-    """Parse the fixed memory-file frontmatter (name/description/metadata.type).
-
-    Hand-rolled on purpose: the format is a closed convention, not arbitrary
-    YAML, and this keeps the image dependency-free.
-    """
+    """Flat `key: value` frontmatter; nested legacy `metadata:` keys are flattened."""
     meta: dict = {}
     lines = text.splitlines()
     if not lines or lines[0].strip() != "---":
         return meta, text
     body_start = len(lines)
-    in_metadata = False
     for i, line in enumerate(lines[1:], start=1):
         if line.strip() == "---":
             body_start = i + 1
             break
-        if not line.strip() or ":" not in line:
-            continue
-        indented = line[0] in " \t"
-        key, _, value = line.partition(":")
-        key, value = key.strip(), value.strip()
-        if not indented:
-            in_metadata = key == "metadata"
-            if key in ("name", "description") and value:
-                meta[key] = value
-        elif in_metadata and key in ("type", "source", "origin_session") and value:
-            meta[key] = value
+        key, sep, value = line.partition(":")
+        if sep and value.strip() and key.strip() not in meta:
+            meta[key.strip()] = value.strip().strip("\"'")
     return meta, "\n".join(lines[body_start:]).strip()
 
 
-def _parse_learnings(text: str) -> List[dict]:
-    """Split a LEARNINGS.md journal into dated entries (newest kept first)."""
-    entries: List[dict] = []
-    current: Optional[dict] = None
-    for line in text.splitlines():
-        m = LEARNING_HEAD_RE.match(line)
-        if m:
-            if current:
-                current["body"] = current["body"].strip()
-                entries.append(current)
-            current = {"date": m.group(1), "title": m.group(2).strip(), "body": ""}
-        elif current is not None:
-            current["body"] += line + "\n"
-    if current:
-        current["body"] = current["body"].strip()
-        entries.append(current)
-    return entries
+def _stale(nodes_dir: Path, db: Path) -> bool:
+    """Same rule as brain.py `stale`: any .md or folder under nodes/ newer than brain.db
+    (hand edits and cp/mv/rm never reach the PostToolUse hook)."""
+    if not nodes_dir.is_dir():
+        return False
+    if not db.is_file():
+        return True
+    built = db.stat().st_mtime
+    for root, dirs, files in os.walk(nodes_dir):
+        dirs[:] = [d for d in dirs if not d.startswith(".")]
+        if os.stat(root).st_mtime > built:
+            return True
+        if any(f.endswith(".md") and os.stat(os.path.join(root, f)).st_mtime > built for f in files):
+            return True
+    return False
 
 
-def get_coverage(projects_dir: str) -> dict:
-    """project_slug -> lowercase blob of that project's memory text.
+def rebuild_brain(nodes_dir: str) -> None:
+    """Run `brain.py rebuild` for this tree; best-effort (tests have no brain.py)."""
+    root = Path(nodes_dir).parent
+    script = root / "scripts" / "brain.py"
+    if not script.is_file():
+        script = brain_root() / "scripts" / "brain.py"
+    if script.is_file():
+        subprocess.run([sys.executable, str(script), "rebuild"], env={**os.environ, "BRAIN_DIR": str(root)},
+                       capture_output=True, timeout=60, check=False)
 
-    Standalone version of what get_brain builds inline, for callers (tips.py)
-    that only need to know whether a file is already memorized.
+
+def load_tree(db: Path) -> Tuple[List[dict], List[dict]]:
+    """(nodes, edges) from brain.db, rebuilt first if the tree changed under it.
+
+    Empty when the Brain has never been built.
     """
+    if _stale(Path(db).parent / "nodes", Path(db)):
+        rebuild_brain(str(Path(db).parent / "nodes"))
+    if not Path(db).is_file():
+        return [], []
+    con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    con.row_factory = sqlite3.Row
+    try:
+        nodes = [dict(r) for r in con.execute("SELECT * FROM nodes")]
+        edges = [dict(r) for r in con.execute("SELECT * FROM edges")]
+    finally:
+        con.close()
+    for n in nodes:
+        n["workspaces"] = json.loads(n.get("workspaces") or "[]")
+    return nodes, edges
+
+
+def owner_of(node: dict, by_id: dict) -> Optional[dict]:
+    """Nearest project ancestor (or self); else the top domain (e.g. global)."""
+    cur, top = node, node
+    while cur:
+        if cur["kind"] == "project":
+            return cur
+        top = cur
+        cur = by_id.get(cur["parent_id"]) if cur.get("parent_id") else None
+    return top
+
+
+def coverage_from_tree(nodes: List[dict]) -> dict:
+    """project_slug (Claude-encoded cwd) -> lowercase blob of that project's memory text.
+
+    A hub is reachable under every workspace it lists; the global domain under
+    GLOBAL_SLUG. This is what "is this file already memorized?" looks up.
+    """
+    from .naming import _encode_cwd  # local: keeps this module import-light
+
+    by_id = {n["id"]: n for n in nodes}
+    blobs: dict = {}
+    for n in nodes:
+        owner = owner_of(n, by_id)
+        if owner is None:
+            continue
+        text = f"{n['name']}\n{n.get('summary') or ''}\n{n.get('body') or ''}".lower()
+        blobs.setdefault(owner["id"], []).append(text)
     out: dict = {}
-    for mem_dir, slug in iter_mem_dirs(projects_dir):
-        texts = []
-        for f in mem_dir.glob("*.md"):
-            try:
-                texts.append(f.read_text(encoding="utf-8", errors="replace").lower())
-            except OSError:
-                continue
-        out[slug] = "\n".join(texts)
+    for owner_id, parts in blobs.items():
+        owner = by_id[owner_id]
+        blob = "\n".join(parts)
+        keys = [_encode_cwd(w) for w in owner.get("workspaces") or []]
+        if owner["kind"] == "domain" and owner["id"] == GLOBAL_SLUG:
+            keys.append(GLOBAL_SLUG)
+        for k in keys:
+            out[k] = (out.get(k, "") + "\n" + blob).strip()
     return out
 
 
-def _read_mem_dir(mem_dir: Path, slug: str) -> Tuple[List[dict], List[dict], str]:
-    """Parse one memory dir into (entries, learnings, lowercase coverage blob).
-
-    Shared by the project dirs and the global tier so both render identically.
-    Report files (AUDIT.md) are skipped entirely — they're not memories and
-    would otherwise pollute the graph and the ROI coverage match.
-    """
-    entries: List[dict] = []
-    learnings: List[dict] = []
-    covered: List[str] = []
-    for f in sorted(mem_dir.glob("*.md")):
-        try:
-            text = f.read_text(encoding="utf-8", errors="replace")
-        except OSError:
-            continue
-        if f.name == "AUDIT.md":
-            continue
-        covered.append(text.lower())
-        if f.name == "MEMORY.md":
-            continue
-        if f.name == "LEARNINGS.md":
-            learnings = _parse_learnings(text)
-            continue
-        meta, body = _parse_frontmatter(text)
-        name = meta.get("name") or f.stem
-        entries.append({
-            "id": f"{slug}::{name}",
-            "name": name,
-            "description": meta.get("description", ""),
-            "type": meta.get("type", "project"),
-            "source": meta.get("source", "user"),
-            "origin_session": meta.get("origin_session", ""),
-            "body": body,
-            "file": f.name,
-            "mtime": _iso(f.stat().st_mtime),
-            "links": sorted(set(LINK_RE.findall(text))),
-        })
-    entries.sort(key=lambda e: e["mtime"], reverse=True)
-    return entries, learnings, "\n".join(covered)
+def get_coverage(projects_dir: str) -> dict:
+    """Coverage map for callers (tips.py) that only need "already memorized?"."""
+    nodes, _ = load_tree(brain_db_for(projects_dir))
+    return coverage_from_tree(nodes)

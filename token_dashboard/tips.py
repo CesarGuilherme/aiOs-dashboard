@@ -76,21 +76,12 @@ def _short(target: str, n: int = 60) -> str:
 
 
 def _memory_blobs(projects_dir: str) -> tuple[dict, str]:
-    """Per-slug coverage plus the global-tier blob (empty if no Brain root)."""
+    """Per-slug coverage plus the global-domain blob (empty if no Brain)."""
     if not projects_dir:
         return {}, ""
-    from .memory_parsing import get_coverage, global_mem_dir
+    from .memory_parsing import GLOBAL_SLUG, get_coverage
     covered = get_coverage(projects_dir)
-    g = global_mem_dir(projects_dir)
-    if not (g and g.is_dir()):
-        return covered, ""
-    parts = []
-    for f in g.glob("*.md"):
-        try:
-            parts.append(f.read_text(encoding="utf-8", errors="replace").lower())
-        except OSError:
-            continue
-    return covered, "\n".join(parts)
+    return covered, covered.get(GLOBAL_SLUG, "")
 
 
 def _in_memory(slug: str, needles, covered: dict, global_blob: str) -> bool:
@@ -220,11 +211,11 @@ def failing_command_tips(db_path, projects_dir: str, today_iso: Optional[str] = 
 def memory_hygiene_tips(db_path, projects_dir: str, today_iso: Optional[str] = None) -> List[dict]:
     """Keep the memory system itself token-efficient.
 
-    Two rules: a LEARNINGS.md journal past the distillation threshold, and an
-    active project (≥5 sessions/30d) with no memory at all.
+    Two rules: a project's LEARNINGS journal past the distillation threshold, and
+    an active project (≥5 sessions/30d) whose cwd no Brain hub covers.
     """
-    from .memory_parsing import LEARNING_HEAD_RE, SPECIAL_FILES, iter_mem_dirs
-    from .naming import get_labels
+    from .memory_parsing import brain_db_for, coverage_from_tree, load_tree, owner_of
+    from .naming import _encode_cwd, get_labels
 
     today_iso = today_iso or datetime.utcnow().isoformat()
     since = _iso_days_ago(today_iso, 30)
@@ -235,47 +226,38 @@ def memory_hygiene_tips(db_path, projects_dir: str, today_iso: Optional[str] = N
             """SELECT project_slug, COUNT(DISTINCT session_id) AS s
                  FROM messages WHERE timestamp >= ?
                 GROUP BY project_slug HAVING s >= 5""", (since,))}
-    slugs = set(active)
-    mem_dirs = list(iter_mem_dirs(projects_dir)) if projects_dir else []
-    slugs.update(slug for _, slug in mem_dirs)
-    labels = get_labels(db_path, sorted(slugs))
+    nodes, _ = load_tree(brain_db_for(projects_dir)) if projects_dir else ([], [])
+    by_id = {n["id"]: n for n in nodes}
+    learnings: dict = {}
+    for n in nodes:
+        if n["kind"] == "memory" and n.get("type") == "learning":
+            owner = owner_of(n, by_id)
+            if owner:
+                learnings[owner["id"]] = learnings.get(owner["id"], 0) + 1
 
-    for mem_dir, slug in mem_dirs:
-        learnings = mem_dir / "LEARNINGS.md"
-        if not learnings.is_file():
-            continue
-        try:
-            entries = sum(1 for ln in learnings.read_text(encoding="utf-8", errors="replace").splitlines()
-                          if LEARNING_HEAD_RE.match(ln))
-        except OSError:
-            continue
+    for hub_id, entries in sorted(learnings.items()):
         if entries <= 30:
             continue
-        key = _key("memory-distill", slug)
+        key = _key("memory-distill", hub_id)
         if _is_dismissed(db_path, key):
             continue
-        label = labels.get(slug, slug)
+        label = by_id[hub_id]["name"]
         out.append({
             "key": key, "category": "memory",
             "project": label,
             "title": f"LEARNINGS.md has {entries} entries — time to distill",
-            "body": f"The {label} learnings journal passed the ~30-entry threshold. Old entries loaded "
-                    "every session are a growing token sink; distilled atomic memories load on demand.",
-            "prompt": "LEARNINGS.md in this project's memory dir passed 30 entries. Distill the oldest "
-                      "entries into atomic memory files (one durable fact each, indexed in MEMORY.md) "
-                      "and trim the journal, per the /learn convention.",
-            "scope": slug,
+            "body": f"The {label} learnings journal passed the ~30-entry threshold. Distilled atomic "
+                    "notes in the right topic are found by `brain search`; a long journal is just noise.",
+            "prompt": f"The Brain journal ~/.brain/nodes/{hub_id}/LEARNINGS.md passed 30 entries. Promote "
+                      "the reusable ones to atomic notes in the right topic (per the /learn skill), add "
+                      "cross-project edges where they apply, trim the journal, then `brain lint`.",
+            "scope": hub_id,
         })
 
+    covered = coverage_from_tree(nodes)
+    labels = get_labels(db_path, sorted(active))
     for slug, sessions in active.items():
-        mem_dir = next((d for d, s in mem_dirs if s == slug), None)
-        if mem_dir is None:
-            mem_dir = Path(projects_dir) / slug / "memory" if projects_dir else None
-        has_memories = bool(
-            mem_dir and mem_dir.is_dir() and any(
-                f.name not in SPECIAL_FILES for f in mem_dir.glob("*.md"))
-        )
-        if has_memories:
+        if covered.get(_encode_cwd(slug)):
             continue
         key = _key("memory-missing", slug)
         if _is_dismissed(db_path, key):
@@ -287,9 +269,10 @@ def memory_hygiene_tips(db_path, projects_dir: str, today_iso: Optional[str] = N
             "title": f"{label} has {sessions} sessions this month but no memory",
             "body": "Every session in this project starts from zero — decisions and gotchas get "
                     "re-derived each time. One session spent saving memories pays back immediately.",
-            "prompt": "This project has no saved memories yet. Save memory files for its durable, "
-                      "non-derivable facts (key decisions, gotchas, contracts), index them in "
-                      "MEMORY.md, and start a LEARNINGS.md journal per the /learn convention.",
+            "prompt": "This project has no hub in the Second Brain yet. Create "
+                      "~/.brain/nodes/<domain>/<project>/_project.md (O que é / O que faz / Como faz / "
+                      "Stack / Soluções reutilizáveis / Onde está, with workspaces: = this repo) and "
+                      "save its durable facts as notes, per the /learn skill.",
             "scope": slug,
         })
     return out

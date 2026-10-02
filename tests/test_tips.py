@@ -4,6 +4,8 @@ import unittest
 from pathlib import Path
 
 from token_dashboard.db import init_db, connect
+
+from tests.brain_fixture import make_brain
 from token_dashboard.tips import (
     cache_discipline_tips, repeat_file_tips, ignored_memory_tips,
     right_size_tips, outlier_tips, all_tips, dismiss_tip,
@@ -100,9 +102,11 @@ class RepeatFileTests(unittest.TestCase):
         self.assertTrue(tips[0].get("prompt"))
 
     def test_covered_file_is_ignored_memory_not_repeat(self):
-        mem = Path(self.mem) / "p" / "memory"
-        mem.mkdir(parents=True)
-        (mem / "root_contract.md").write_text("contract for Root.tsx layout", encoding="utf-8")
+        self.mem = make_brain(self.tmp, [
+            {"id": "d", "kind": "domain"},
+            {"id": "d/p", "kind": "project", "workspaces": ["p"]},
+            {"id": "d/p/root_contract", "kind": "memory", "body": "contract for Root.tsx layout"},
+        ])
         self._reads("src/Root.tsx", ["s1", "s2", "s3"], n_each=4)
         self.assertEqual(repeat_file_tips(self.db, self.mem, today_iso=TODAY), [])
         ign = ignored_memory_tips(self.db, self.mem, today_iso=TODAY)
@@ -134,10 +138,11 @@ class FailTipTests(unittest.TestCase):
         self.assertEqual(failing_command_tips(self.db, str(self.brain), today_iso=TODAY), [])
 
     def test_documented_fail_is_ignored_fail(self):
-        g = Path(self.tmp) / "global"
-        g.mkdir()
-        (g / "xcode.md").write_text(
-            "do not call xcode-tools__XcodeRefreshCodeIssuesInFile", encoding="utf-8")
+        self.brain = make_brain(self.tmp, [
+            {"id": "global", "kind": "domain"},
+            {"id": "global/xcode", "kind": "memory",
+             "body": "do not call xcode-tools__XcodeRefreshCodeIssuesInFile"},
+        ])
         self._fails("use_tool", "xcode-tools__XcodeRefreshCodeIssuesInFile",
                     ["s1", "s2"], n_each=3)
         tips = failing_command_tips(self.db, str(self.brain), today_iso=TODAY)

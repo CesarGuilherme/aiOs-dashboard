@@ -1,15 +1,24 @@
 // rings.js — organic brain-synapse renderer, arc-reactor style (see
 // hud-background.js for the source of the rotation/projection/glow idiom).
-// Memory nodes are neuron somas laid out by a one-shot 3D force-directed
-// relaxation, slowly rotating in 3D with perspective projection and additive
-// glow; wikilink edges are dendrite curves, and a few fire a traveling pulse
-// + arrival flash at a time, like action potentials crossing a synapse.
-// Everything is drawn fresh each frame (≈50 nodes) — no baked bitmap, so
-// labels stay upright in screen space and there is no bitmap boundary.
+// The Brain is a tree (domain → project hub → topic → memory) plus typed
+// cross-project links. Nodes are neuron somas sized by kind and descendant
+// count — hubs are big and bright — laid out by a one-shot 3D force-directed
+// relaxation where `parent` springs are short (clusters form around hubs) and
+// keyword `soft` springs are long and weak. Typed links are colored by kind and
+// fire a traveling pulse + arrival flash, like action potentials crossing a
+// synapse. Everything is drawn fresh each frame (~200 nodes) — no baked bitmap,
+// so labels stay upright in screen space and there is no bitmap boundary.
 
 const WORLD = 480;
 const FR_ITERS = 300;
 const PULSE_MS = 900;
+// spring length per edge kind (× k): short parent springs pull a project together
+const SPRING = { parent: 0.4, link: 2.0 };   // soft edges are drawn, not laid out
+const KIND_R = { domain: 15, project: 9, topic: 5, memory: 3.2 };
+const EDGE_RGB = {
+  'same-solution': [255, 196, 84], reuses: [80, 220, 255], 'depends-on': [120, 150, 255],
+  supersedes: [150, 150, 165], related: [205, 140, 255],
+};
 const hash = s => { let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) | 0; return (h >>> 0) / 4294967295; };
 
 export function ringsCanvas(el, { nodes, links, onNodeClick, onNodeHover }) {
@@ -18,11 +27,11 @@ export function ringsCanvas(el, { nodes, links, onNodeClick, onNodeHover }) {
   el.appendChild(canvas);
   const ctx = canvas.getContext('2d');
 
-  let all = [], byId = new Map(), edges = [], adj = new Map();
+  let all = [], byId = new Map(), edges = [], adj = new Map(), firing = [];
 
   // ---- layout: one-shot 3D force-directed (Fruchterman-Reingold-ish) --------
   function layoutForce(nodesIn, linksIn) {
-    all = nodesIn.filter(n => n.layer === 'memory').map(n => {
+    all = nodesIn.map(n => {
       const theta = hash(n.id) * 2 * Math.PI;
       const phi = Math.acos(hash(n.id + '.p') * 2 - 1);
       const r = WORLD * 0.3 * (0.4 + hash(n.id + '.r'));
@@ -35,7 +44,10 @@ export function ringsCanvas(el, { nodes, links, onNodeClick, onNodeHover }) {
         x: 0, y: 0, scale: 1 };
     });
     byId = new Map(all.map(n => [n.id, n]));
-    edges = linksIn.map(l => [byId.get(l.source), byId.get(l.target)]).filter(([a, b]) => a && b);
+    edges = linksIn.map(l => [byId.get(l.source), byId.get(l.target), l.kind || 'link', l.why || ''])
+      .filter(([a, b]) => a && b);
+    firing = edges.filter(e => e[2] !== 'parent' && e[2] !== 'soft');
+    if (!firing.length) firing = edges;
     const groups = [...new Set(all.map(n => n.group))].sort();
     groupHue = new Map(groups.map((g, i) => [g, (i / Math.max(1, groups.length)) * 360]));
 
@@ -44,29 +56,37 @@ export function ringsCanvas(el, { nodes, links, onNodeClick, onNodeHover }) {
       (adj.get(a) || adj.set(a, new Set()).get(a)).add(b);
       (adj.get(b) || adj.set(b, new Set()).get(b)).add(a);
     }
-    for (const n of all) n.r = 5 + Math.min(9, 1.6 * (adj.get(n) ? adj.get(n).size : 0));
+    for (const n of all) {
+      const deg = adj.get(n) ? adj.get(n).size : 0;
+      n.r = !n.kind ? 5 + Math.min(9, 1.6 * deg)                       // legacy flat payload
+        : n.kind === 'project' ? KIND_R.project + Math.min(9, Math.sqrt(n.size || 0) * 1.4)
+        : (KIND_R[n.kind] ?? 5) + (n.kind === 'memory' ? Math.min(3, deg * 0.35) : 0);
+      n.hub = n.kind === 'project' || n.kind === 'domain';
+    }
 
+    const tree = seedTree(edges);
     if (all.length > 1) {
-      const k = WORLD / Math.cbrt(all.length) * 0.55;
-      let temp = WORLD * 0.06;
-      for (let it = 0; it < FR_ITERS; it++) {
+      const k = WORLD / Math.cbrt(all.length) * (tree ? 0.35 : 0.55);
+      let temp = WORLD * (tree ? 0.012 : 0.06);
+      for (let it = 0; it < (tree ? 140 : FR_ITERS); it++) {
         const disp = new Map(all.map(n => [n, [0, 0, 0]]));
         for (let i = 0; i < all.length; i++) {
           for (let j = i + 1; j < all.length; j++) {
             const a = all[i], b = all[j];
             let dx = a.x3d - b.x3d, dy = a.y3d - b.y3d, dz = a.z3d - b.z3d;
             const d = Math.hypot(dx, dy, dz) || 0.01;
-            const f = (k * k) / d / d;
+            const f = (k * k) * (a.r * b.r / 25) / d / d;
             dx *= f; dy *= f; dz *= f;
             const da = disp.get(a), db = disp.get(b);
             da[0] += dx; da[1] += dy; da[2] += dz;
             db[0] -= dx; db[1] -= dy; db[2] -= dz;
           }
         }
-        for (const [a, b] of edges) {
+        for (const [a, b, kind] of edges) {
+          if (kind === 'soft') continue;
           let dx = a.x3d - b.x3d, dy = a.y3d - b.y3d, dz = a.z3d - b.z3d;
           const d = Math.hypot(dx, dy, dz) || 0.01;
-          const f = d / k;
+          const f = d / (k * (SPRING[kind] ?? 1));
           dx *= f / d; dy *= f / d; dz *= f / d;
           const da = disp.get(a), db = disp.get(b);
           da[0] -= dx * d; da[1] -= dy * d; da[2] -= dz * d;
@@ -87,7 +107,52 @@ export function ringsCanvas(el, { nodes, links, onNodeClick, onNodeHover }) {
       const cy = all.reduce((s, n) => s + n.y3d, 0) / all.length;
       const cz = all.reduce((s, n) => s + n.z3d, 0) / all.length;
       for (const n of all) { n.x3d -= cx; n.y3d -= cy; n.z3d -= cz; }
+      // fit: projection shrinks the world ~0.35× and a sphere shows only ~r/√3 per
+      // axis, so the 90th-percentile node goes to 1.6·WORLD to fill the card
+      const radii = all.map(n => Math.hypot(n.x3d, n.y3d, n.z3d)).sort((a, b) => a - b);
+      const r90 = radii[Math.floor(radii.length * 0.9)] || 1;
+      const fit = (WORLD * 1.6) / r90;
+      for (const n of all) { n.x3d *= fit; n.y3d *= fit; n.z3d *= fit; }
     }
+  }
+
+  // Tree payloads (parent edges) get a hierarchical seed: domains on a sphere,
+  // each node's children fanned out on a cap pointing away from its parent, so
+  // hubs end up as centers of their own satellite clusters before relaxation.
+  function seedTree(edgesIn) {
+    const kids = new Map();
+    let any = false;
+    for (const [a, b, kind] of edgesIn) {
+      if (kind !== 'parent') continue;
+      any = true;
+      (kids.get(a) || kids.set(a, []).get(a)).push(b);
+    }
+    if (!any) return false;
+    const hasParent = new Set([...kids.values()].flat());
+    const roots = all.filter(n => !hasParent.has(n));
+    const fib = (i, m) => {  // even directions on a unit sphere
+      const y = 1 - (2 * (i + 0.5)) / m, r = Math.sqrt(1 - y * y), t = i * 2.399963;
+      return [Math.cos(t) * r, y, Math.sin(t) * r];
+    };
+    const DIST = { domain: WORLD * 0.62, project: WORLD * 0.30, topic: WORLD * 0.12, memory: WORLD * 0.07 };
+    const place = (n, pos, out) => {
+      [n.x3d, n.y3d, n.z3d] = pos;
+      const ch = kids.get(n) || [];
+      ch.forEach((c, i) => {
+        let [dx, dy, dz] = fib(i, Math.max(ch.length, 2));
+        if (out) { dx += out[0] * 1.6; dy += out[1] * 1.6; dz += out[2] * 1.6; }  // fan outward
+        const len = Math.hypot(dx, dy, dz) || 1;
+        const dir = [dx / len, dy / len, dz / len];
+        const d = (DIST[c.kind] ?? WORLD * 0.08) * (c.kind === 'project' ? 0.7 + Math.sqrt(c.size || 1) * 0.08 : 1);
+        place(c, [pos[0] + dir[0] * d, pos[1] + dir[1] * d, pos[2] + dir[2] * d], dir);
+      });
+    };
+    roots.forEach((r, i) => {
+      const dir = fib(i, Math.max(roots.length, 2));
+      const d = r.kind === 'domain' ? DIST.domain : WORLD * 0.2;
+      place(r, dir.map(v => v * d), dir);
+    });
+    return true;
   }
 
   // rainbow hue per project (group), evenly spread; small per-node jitter
@@ -98,7 +163,7 @@ export function ringsCanvas(el, { nodes, links, onNodeClick, onNodeHover }) {
   }
   function nodeRGB(n) {
     const hue = (groupHue.get(n.group) ?? 270) + (hash(n.id + '.hue') - 0.5) * 18;
-    return hsl2rgb((hue + 360) % 360, 0.72, 0.68);
+    return hsl2rgb((hue + 360) % 360, n.kind === 'domain' ? 0.35 : 0.72, n.hub ? 0.76 : 0.66);
   }
 
   // ---- state ----------------------------------------------------------------
@@ -199,13 +264,18 @@ export function ringsCanvas(el, { nodes, links, onNodeClick, onNodeHover }) {
     gr.addColorStop(0, `rgba(${Math.min(255, r + 70)},${Math.min(255, g + 70)},${Math.min(255, b + 70)},1)`);
     gr.addColorStop(1, `rgba(${r},${g},${b},0.85)`);
     c.shadowColor = `rgb(${r},${g},${b})`;
-    c.shadowBlur = Math.min(80, glow ? rr * 2.2 : rr * 0.9);
+    c.shadowBlur = Math.min(80, glow || n.hub ? rr * 2.4 : rr * 0.9);
     somaPath(c, n, rr);
     c.fillStyle = gr; c.fill();
     c.shadowBlur = 0;
     // soft outer aura, additive
-    c.fillStyle = `rgba(${r},${g},${b},${glow ? 0.16 : 0.07})`;
-    c.beginPath(); c.arc(n.x, n.y, rr * 2.6, 0, 2 * Math.PI); c.fill();
+    c.fillStyle = `rgba(${r},${g},${b},${glow ? 0.16 : n.hub ? 0.12 : 0.07})`;
+    c.beginPath(); c.arc(n.x, n.y, rr * (n.hub ? 3.4 : 2.6), 0, 2 * Math.PI); c.fill();
+    if (n.hub) {  // arc-reactor ring around hubs
+      c.strokeStyle = `rgba(${Math.min(255, r + 60)},${Math.min(255, g + 60)},${Math.min(255, b + 60)},0.55)`;
+      c.lineWidth = 1.2;
+      c.beginPath(); c.arc(n.x, n.y, rr * 1.55, 0, 2 * Math.PI); c.stroke();
+    }
     if (glow) {
       c.strokeStyle = 'rgba(255,255,255,0.85)'; c.lineWidth = 1.6;
       c.beginPath(); c.arc(n.x, n.y, rr + 4, 0, 2 * Math.PI); c.stroke();
@@ -224,8 +294,24 @@ export function ringsCanvas(el, { nodes, links, onNodeClick, onNodeHover }) {
     return [u * u * a.x + 2 * u * t * cx + t * t * b.x, u * u * a.y + 2 * u * t * cy + t * t * b.y];
   }
 
-  function drawEdge(c, a, b) {
-    const alpha = 0.16 * Math.min(nodeAlpha(a), nodeAlpha(b)) * (0.4 + (a.depth + b.depth) * 0.3);
+  function drawEdge(c, a, b, kind) {
+    const vis = Math.min(nodeAlpha(a), nodeAlpha(b)) * (0.4 + (a.depth + b.depth) * 0.3);
+    if (kind === 'parent' || kind === 'soft') {   // hierarchy + keyword overlap: hairlines
+      const [r, g, bl] = nodeRGB(b);
+      const al = (kind === 'parent' ? 0.22 : 0.06) * vis;
+      if (al < 0.01) return;
+      c.strokeStyle = `rgba(${r},${g},${bl},${al})`; c.lineWidth = kind === 'parent' ? 0.8 : 0.5;
+      c.beginPath(); c.moveTo(a.x, a.y); c.lineTo(b.x, b.y); c.stroke();
+      return;
+    }
+    if (EDGE_RGB[kind]) {                          // typed cross-project link
+      const [r, g, bl] = EDGE_RGB[kind];
+      const [cx, cy] = edgeCtrl(a, b);
+      c.strokeStyle = `rgba(${r},${g},${bl},${0.7 * vis})`; c.lineWidth = 1.8;
+      c.beginPath(); c.moveTo(a.x, a.y); c.quadraticCurveTo(cx, cy, b.x, b.y); c.stroke();
+      return;
+    }
+    const alpha = 0.16 * vis;
     if (alpha < 0.01) return;
     const [cx, cy] = edgeCtrl(a, b);
     const w0 = Math.max(1.2, a.r * a.scale * 1.6 * 0.2), w1 = Math.max(0.5, b.r * b.scale * 1.6 * 0.1);
@@ -261,14 +347,14 @@ export function ringsCanvas(el, { nodes, links, onNodeClick, onNodeHover }) {
     ctx.fillStyle = halo; ctx.fillRect(0, 0, w, h);
 
     const sorted = [...all].sort((a, b) => a.depth - b.depth);  // back to front
-    for (const [a, b] of edges) drawEdge(ctx, a, b);
+    for (const [a, b, kind] of edges) drawEdge(ctx, a, b, kind);
 
     // synapse pulses: traveling glow + arrival flash
     for (const p of pulses) {
       const t = Math.min(1, (now - p.t0) / PULSE_MS);
       const [a, b] = p.edge;
       const [px, py] = edgePoint(a, b, t);
-      const [r, g, bch] = nodeRGB(a);
+      const [r, g, bch] = EDGE_RGB[p.kind] || nodeRGB(a);
       ctx.shadowColor = `rgb(${r},${g},${bch})`; ctx.shadowBlur = 14;
       ctx.fillStyle = 'rgba(255,255,255,0.95)';
       ctx.beginPath(); ctx.arc(px, py, 2.6 * Math.max(0.6, b.depth), 0, 2 * Math.PI); ctx.fill();
@@ -315,7 +401,8 @@ export function ringsCanvas(el, { nodes, links, onNodeClick, onNodeHover }) {
       ctx.font = '600 10px system-ui'; ctx.textAlign = 'center';
       for (const n of sorted) {
         if (n === hovered) continue;
-        const a = (hovered ? 0.15 : 0.55) * nodeAlpha(n) * Math.max(0, (n.depth - 0.35) * 1.55);
+        if (n.kind === 'memory' && zoom < 1.8) continue;   // ~150 notes: name hubs/topics only
+        const a = (n.hub ? 1.6 : 1) * (hovered ? 0.15 : 0.55) * nodeAlpha(n) * Math.max(0, (n.depth - 0.35) * 1.55);
         if (a < 0.05) continue;
         ctx.fillStyle = `rgba(225,220,245,${Math.min(0.8, a)})`;
         ctx.fillText(n.name, n.x, n.y + n.r * n.scale * 1.6 + 12);
@@ -324,6 +411,12 @@ export function ringsCanvas(el, { nodes, links, onNodeClick, onNodeHover }) {
     if (hovered) {
       ctx.fillStyle = '#fff'; ctx.font = '600 12px system-ui'; ctx.textAlign = 'center';
       ctx.fillText(hovered.name, hovered.x, hovered.y - hovered.r * hovered.scale * 1.6 - 10);
+      const sum = hovered.meta?.summary;
+      if (sum) {
+        ctx.font = '400 11px system-ui'; ctx.fillStyle = 'rgba(225,220,245,0.85)';
+        ctx.fillText(sum.length > 90 ? sum.slice(0, 89) + '…' : sum,
+          hovered.x, hovered.y + hovered.r * hovered.scale * 1.6 + 16);
+      }
     }
   }
 
@@ -340,11 +433,11 @@ export function ringsCanvas(el, { nodes, links, onNodeClick, onNodeHover }) {
 
   // ---- synapse-firing scheduler ---------------------------------------------
   const scheduleFiring = () => {
-    if (!edges.length || document.hidden) return;
+    if (!firing.length || document.hidden) return;
     const n = 1 + Math.floor(Math.random() * 3);
     for (let i = 0; i < n; i++) {
-      const [a, b] = edges[Math.floor(Math.random() * edges.length)];
-      pulses.push({ edge: Math.random() < 0.5 ? [a, b] : [b, a], t0: performance.now() });
+      const [a, b, kind] = firing[Math.floor(Math.random() * firing.length)];
+      pulses.push({ edge: Math.random() < 0.5 ? [a, b] : [b, a], kind, t0: performance.now() });
     }
   };
   const pulseInterval = setInterval(scheduleFiring, 500 + Math.random() * 400);
@@ -426,6 +519,7 @@ export function ringsCanvas(el, { nodes, links, onNodeClick, onNodeHover }) {
     setSpin(v) { spin = +v; localStorage.setItem('td.rings.spin', String(v)); },
     get spin() { return spin; },
     get labels() { return labels; },
+    get nodes() { return all; },   // read-only view for layout diagnostics
     flyTo(id) {
       const n = byId.get(id);
       if (!n) return;

@@ -76,7 +76,7 @@ function knowledgeHtml(brain) {
     `<span style="margin-right:18px"><b style="font-size:16px;color:${warn && v ? '#FFB454' : 'inherit'}">${v}</b> ${label}</span>`;
   return stat(memories, 'memories') +
     stat(projs.length, 'projects') +
-    stat(links, 'wikilinks') +
+    stat(links, 'links') +
     stat(suggestions, 'suggested', true) +
     stat(neverUsed, 'injected but never used', true);
 }
